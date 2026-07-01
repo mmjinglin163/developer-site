@@ -8,8 +8,8 @@ Full API reference: https://api.playcanvas.com
 
 Base URL: https://developer.playcanvas.com
 Engine Version: 2.19.7
-Total Documents: 454
-Generated: 2026-06-18
+Total Documents: 469
+Generated: 2026-07-01
 
 ## Instructions for Large Language Models
 
@@ -376,6 +376,7 @@ The full API reference lives at https://api.playcanvas.com. Engine classes follo
 - [`<Application/>`](https://developer.playcanvas.com/user-manual/react/api/application/): The `Application` component is the root component for any PlayCanvas React application. It initializes and manages the canvas and PlayCanvas application instance.
 - [`<Camera/>`](https://developer.playcanvas.com/user-manual/react/api/camera/): Documentation for the Camera component
 - [`<Collision/>`](https://developer.playcanvas.com/user-manual/react/api/collision/): Documentation for the Collision component
+- [`<Element/>`](https://developer.playcanvas.com/user-manual/react/api/element/): Documentation for the Element component
 - [`<Entity/>`](https://developer.playcanvas.com/user-manual/react/api/entity/): The `Entity` component is the fundamental building block in PlayCanvas React applications.
 - [`<Environment/>`](https://developer.playcanvas.com/user-manual/react/api/environment/): Documentation for the Environment component
 - [`<Gltf/>`](https://developer.playcanvas.com/user-manual/react/api/gltf/): Documentation for the Gltf component
@@ -391,12 +392,14 @@ The full API reference lives at https://api.playcanvas.com. Engine classes follo
 - [`<Modify.*>`](https://developer.playcanvas.com/user-manual/react/api/modify/): Documentation for the Modify helpers
 - [`<Render/>`](https://developer.playcanvas.com/user-manual/react/api/render/): Documentation for the Render component
 - [`<Rigidbody/>`](https://developer.playcanvas.com/user-manual/react/api/rigidbody/): Documentation for the Rigidbody component
+- [`<Screen/>`](https://developer.playcanvas.com/user-manual/react/api/screen/): Documentation for the Screen component
 - [`<Script/>`](https://developer.playcanvas.com/user-manual/react/api/script/): Documentation for the Script component
 - [Building a Scene](https://developer.playcanvas.com/user-manual/react/building-a-scene/): Step-by-step tutorial creating a PlayCanvas React scene: app shell, camera, lights, input, models, and staging with live embedded examples.
 - [Examples](https://developer.playcanvas.com/user-manual/react/examples/): Live, editable PlayCanvas React examples you can run and modify directly in the documentation.
 - [Model Viewer](https://developer.playcanvas.com/user-manual/react/examples/model-viewer/): Live PlayCanvas React example — a glb model viewer with environment lighting, shadows and orbit controls.
 - [Motion](https://developer.playcanvas.com/user-manual/react/examples/motion/): Live PlayCanvas React example — animating entities and lights with springs from the Motion animation library.
 - [Physics](https://developer.playcanvas.com/user-manual/react/examples/physics/): Live PlayCanvas React example — a cluster of rigid bodies disturbed by pointer movement in zero gravity.
+- [Text](https://developer.playcanvas.com/user-manual/react/examples/text/): Live PlayCanvas React example — render screen-space text with a Screen and a text Element using an MSDF font from font-tools.
 - [Getting Started](https://developer.playcanvas.com/user-manual/react/getting-started/): Start here for PlayCanvas React: learning path for install, first scene, asset loading, and prerequisites such as Node and React basics.
 - [Installation](https://developer.playcanvas.com/user-manual/react/getting-started/installation/): Install PlayCanvas React with npm create playcanvas, TypeScript template notes, and manual setup steps for npm packages and Vite.
 - [Concepts](https://developer.playcanvas.com/user-manual/react/guide/): Core PlayCanvas React concepts: Application and Entity components, assets, scripts, render pipeline, and how the wrapper maps to the engine.
@@ -415,11 +418,14 @@ The full API reference lives at https://api.playcanvas.com. Engine classes follo
 - [Tag Reference](https://developer.playcanvas.com/user-manual/web-components/tags/): Alphabetical index of PlayCanvas Web Component tags with short summaries linking to full attribute and usage documentation for each element.
 - [<pc-app>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-app/): Reference for the pc-app element: initializes the PlayCanvas Application, graphics options, and root container for scenes and entities.
 - [<pc-asset>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-asset/): Reference for the pc-asset element: declare assets to load by URL or id, types, preloading, and how other tags consume loaded resources.
+- [<pc-button>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-button/): Reference for the pc-button element: interactive button component with tint and sprite transitions for hover, pressed, and inactive states.
 - [<pc-camera>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-camera/): Reference for the pc-camera element: projection, clear options, render order, and attributes that map to the engine camera component.
 - [<pc-collision>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-collision/): Reference for the pc-collision element: collision shapes and parameters for triggers, rigid bodies, and physics queries in declarative HTML.
 - [<pc-element>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-element/): Reference for the pc-element element: screen-space UI text, images, and groups mapped to PlayCanvas Element components and layout.
 - [<pc-entity>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-entity/): Reference for the pc-entity element: names, transforms, hierarchy rules, and which child component tags are valid under an entity.
 - [<pc-gsplat>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-gsplat/): Reference for the pc-gsplat element: render Gaussian splat assets with attributes for the splat data source, shadows, and LOD tuning.
+- [<pc-layoutchild>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-layoutchild/): Reference for the pc-layoutchild element: per-child layout constraints (min/max size and fit proportions) within a layout group.
+- [<pc-layoutgroup>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-layoutgroup/): Reference for the pc-layoutgroup element: arranges child elements in horizontal or vertical layouts with spacing, padding, alignment, and fitting.
 - [<pc-light>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-light/): Reference for the pc-light element: light types, color, intensity, shadows, and attributes for directional, spot, and omni lights.
 - [<pc-listener>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-listener/): Reference for the pc-listener element: positional audio listener placement and settings for 3D sound relative to the active camera.
 - [<pc-model>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-model/): Reference for the pc-model element: load and instance GLB or model assets on an entity with import settings and render integration.
@@ -431,6 +437,8 @@ The full API reference lives at https://api.playcanvas.com. Engine classes follo
 - [<pc-screen>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-screen/): Reference for the pc-screen element: 2D screen space for UI elements, resolution, scale modes, and child pc-element hierarchies.
 - [<pc-script>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-script/): Reference for the pc-script element: attach a single script asset or class to an entity with ordering and attribute wiring in HTML.
 - [<pc-scripts>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-scripts/): Reference for the pc-scripts element: script component container grouping multiple pc-script children and shared script settings.
+- [<pc-scrollbar>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-scrollbar/): Reference for the pc-scrollbar element: draggable scrollbar with orientation, handle size, and value, used to drive a scroll view.
+- [<pc-scrollview>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-scrollview/): Reference for the pc-scrollview element: scrollable viewport with content, scrollbars, mouse-wheel support, and bounce/clamp/infinite modes.
 - [<pc-sky>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-sky/): Reference for the pc-sky element: image-based lighting and skyboxes from cubemap or equirectangular assets for scene backgrounds.
 - [<pc-sound>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-sound/): Reference for the pc-sound element: positional or non-positional audio clips, volume, pitch, autoplay rules, and asset references.
 - [<pc-sounds>](https://developer.playcanvas.com/user-manual/web-components/tags/pc-sounds/): Reference for the pc-sounds element: sound component container that groups pc-sound slots and shared audio settings on an entity.
@@ -444,7 +452,7 @@ The full API reference lives at https://api.playcanvas.com. Engine classes follo
 - [Data Panel](https://developer.playcanvas.com/user-manual/supersplat/editor/data-panel/): SPLAT DATA panel: histograms and statistics for splat attributes, selection by property ranges, and keyboard shortcuts.
 - [Editing Splats](https://developer.playcanvas.com/user-manual/supersplat/editor/editing-splats/): SuperSplat edit modes (centers versus rings), selection tools, overlays, and workflows for cleaning and modifying splats.
 - [Import and Export](https://developer.playcanvas.com/user-manual/supersplat/editor/import-export/): SuperSplat import and export formats: PLY, compressed PLY, SOG, SPLAT, viewers, and choosing formats for web or archival use.
-- [Interface Overview](https://developer.playcanvas.com/user-manual/supersplat/editor/interface/): Tour of the SuperSplat UI: menu bar, scene manager, viewport, view cube, toolbar, and core panels for editing splats.
+- [Interface Overview](https://developer.playcanvas.com/user-manual/supersplat/editor/interface/): Tour of the SuperSplat UI: menu bar, scene manager, viewport, view cube, toolbar, core panels for editing splats, and interface language settings.
 - [Managing Projects](https://developer.playcanvas.com/user-manual/supersplat/editor/managing-projects/): SuperSplat .ssproj projects: save and reload edits, share state, ZIP structure, and collaboration via project files.
 - [Publishing](https://developer.playcanvas.com/user-manual/supersplat/editor/publishing/): Publish a splat from the SuperSplat Editor to superspl.at so it lands on your Manage page and can be opened in Studio.
 - [Rendering Media](https://developer.playcanvas.com/user-manual/supersplat/editor/rendering/): Render still images and videos from SuperSplat locally: presets, resolutions, codecs, and timeline-driven video output.
@@ -553,7 +561,8 @@ The full API reference lives at https://api.playcanvas.com. Engine classes follo
 - [Sepia Effect](https://developer.playcanvas.com/user-manual/graphics/posteffects/legacy/sepia/): Legacy sepia script effect amount and GitHub reference for the sepia post-processing camera script.
 - [Vignette Effect](https://developer.playcanvas.com/user-manual/graphics/posteffects/legacy/vignette/): Legacy vignette offset and darkness controls to darken edges, with GitHub link for the vignette script.
 - [Shaders](https://developer.playcanvas.com/user-manual/graphics/shaders/): Author ShaderMaterial with paired GLSL and WGSL, declare attributes, and integrate with the engine shader system.
-- [Compute Shaders](https://developer.playcanvas.com/user-manual/graphics/shaders/compute-shaders/): WebGPU-only compute shaders: device checks, WGSL cshader definitions, bind groups, and general-purpose GPU work.
+- [Compute Shaders Advanced](https://developer.playcanvas.com/user-manual/graphics/shaders/compute-shaders-advanced/): Manual bind group control for WebGPU compute shaders: hand-authored computeBindGroupFormat, explicit bindings, and mixing with reflected resources.
+- [Compute Shaders](https://developer.playcanvas.com/user-manual/graphics/shaders/compute-shaders/): WebGPU-only compute shaders: device checks, simplified WGSL resource declarations, dispatch, and general-purpose GPU work.
 - [GLSL Specifics](https://developer.playcanvas.com/user-manual/graphics/shaders/glsl-specifics/): Rules for GLSL attributes, uniforms, varyings, and versioning so PlayCanvas can wire resources and transpile to WGSL.
 - [Shader Chunk Migrations](https://developer.playcanvas.com/user-manual/graphics/shaders/migrations/): Per-release shader chunk changes, console warnings for overrides, and how to set shaderChunksVersion after updates.
 - [Shader Preprocessor](https://developer.playcanvas.com/user-manual/graphics/shaders/preprocessor/): C-style defines, includes, and ifdef chains applied to GLSL, WGSL, and compute shaders before compilation.
@@ -564,7 +573,10 @@ The full API reference lives at https://api.playcanvas.com. Engine classes follo
 ### Gaussian Splatting
 - [Gaussian Splatting](https://developer.playcanvas.com/user-manual/gaussian-splatting/): Overview of 3D Gaussian Splatting in PlayCanvas: capture, viewing, editing, and building web apps with photorealistic splat scenes.
 - [Building Splat-based Apps](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/): Introduction to building Gaussian splat applications with PlayCanvas and links to deeper guides for integration and rendering.
-- [Custom Shaders](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/custom-shaders/): Customize Gaussian splat rendering with the gsplatModifyVS shader chunk on the scene gsplat material: overridable functions, GLSL/WGSL, and a live example.
+- [Custom Shaders](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/custom-shaders/): Customize Gaussian splat rendering with shader chunks on the scene gsplat material: vertex and fragment stage hooks, how to choose between them, and how to apply them.
+- [Fragment Stage](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/custom-shaders/fragment/): Customize the final Gaussian splat fragment color with the gsplatModifyPS shader chunk: per-pixel color modification, GLSL/WGSL, and available shader inputs.
+- [Varying Streams](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/custom-shaders/varyings/): Pass per-splat data from the gsplat vertex stage to the fragment stage using custom varying streams: API, generated set/get functions, and a live clipping example.
+- [Vertex Stage](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/custom-shaders/vertex/): Customize Gaussian splat position, rotation, scale and color with the gsplatModifyVS shader chunk: overridable functions, GLSL/WGSL, and a live example.
 - [Fisheye Rendering](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/fisheye/): Apply a fisheye projection to Gaussian splats and the infinite skybox for ultra-wide field of view and 'tiny planet' effects.
 - [Streamed SOG](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/lod-streaming/): Streamed SOG for large splat scenes: spatial tree layout, generating lod-meta data, examples, and performance guidance.
 - [Performance](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/performance/): Performance tips for splat scenes: splat counts, fill rate, scene settings, Streamed SOG budgets, and optimization strategies.
@@ -574,6 +586,8 @@ The full API reference lives at https://api.playcanvas.com. Engine classes follo
 - [Lines and Shapes](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/procedural-splats/lines/): GsplatLines script: splat-based lines, arrows, and AABB wireframes for CAD-style visualization and debugging.
 - [Mesh to Splats](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/procedural-splats/mesh/): GsplatMesh script: rasterize mesh triangles into uniformly distributed splats using render-component geometry for stylized splat models.
 - [Text to Splats](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/procedural-splats/text/): GsplatText script: render labels as splats from canvas text with fonts, stroke, and fill on the XZ plane in splat scenes.
+- [Relighting](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/relighting/): Relight Gaussian splat scenes with standard lights using a proxy mesh and the GsplatRelighting script: setup, lights, shadows and tuning.
+- [Render on Demand](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/render-on-demand/): Render Gaussian splats only when something changes: background streaming with autoRender disabled, the frame:request event, and on-demand rendering.
 - [Shadows](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/shadows/): Enable shadow casting from Gaussian splats onto meshes: API properties, lights, and tuning shadow quality for splat scenes.
 - [Your First Splat App](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/your-first-app/): Choose a path to build your first PlayCanvas splat app: Engine, Editor, React, or Web Components tutorials with a toy cat demo.
 - [Using the Editor](https://developer.playcanvas.com/user-manual/gaussian-splatting/building/your-first-app/editor/): Step-by-step: create a splat scene in the PlayCanvas Editor, import assets, and publish an interactive orbitable splat project.
@@ -589,7 +603,7 @@ The full API reference lives at https://api.playcanvas.com. Engine classes follo
 - [The SOG Format](https://developer.playcanvas.com/user-manual/gaussian-splatting/formats/sog/): SOG (Spatially Ordered Gaussians) specification: WebP textures, meta.json layout, quantization, and bundled versus unbundled files.
 - [The Streamed SOG Format](https://developer.playcanvas.com/user-manual/gaussian-splatting/formats/streamed-sog/): Streamed SOG specification: lod-meta.json layout, spatial tree, LOD chunk references, and environment splats.
 - [Splat Rendering Architecture](https://developer.playcanvas.com/user-manual/gaussian-splatting/rendering-architecture/): How PlayCanvas renders Gaussian splats: the work buffer pipeline, global sorting across components, and access to advanced features.
-- [Renderers](https://developer.playcanvas.com/user-manual/gaussian-splatting/rendering-architecture/renderers/): Gaussian splat renderers in PlayCanvas: raster with CPU sorting vs experimental GPU sorting, selecting a renderer, sorting, and depth buffer limits.
+- [Renderers](https://developer.playcanvas.com/user-manual/gaussian-splatting/rendering-architecture/renderers/): Gaussian splat renderers in PlayCanvas: raster with CPU sorting vs GPU sorting, selecting a renderer, sorting, and depth buffer limits.
 - [Splat Data Format](https://developer.playcanvas.com/user-manual/gaussian-splatting/rendering-architecture/splat-data-format/): GSplatFormat and GPU texture streams: how splat attributes are stored, shader access, and customizing splat data layout.
 - [Splat Processing](https://developer.playcanvas.com/user-manual/gaussian-splatting/rendering-architecture/splat-processing/): GSplatProcessor for GPU splat processing: custom shaders, read-write streams, and use cases like painting and selection.
 - [Work Buffer Format](https://developer.playcanvas.com/user-manual/gaussian-splatting/rendering-architecture/work-buffer-format/): Work buffer format: copy stage customization, streams, and how data flows from resources into the work buffer.
@@ -625,6 +639,7 @@ The full API reference lives at https://api.playcanvas.com. Engine classes follo
 ### User Interface
 - [User Interface](https://developer.playcanvas.com/user-manual/user-interface/): Choose Screen and Element components for in-canvas UI or HTML and CSS, with performance trade-offs.
 - [Elements](https://developer.playcanvas.com/user-manual/user-interface/elements/): Anchor, pivot, and margin properties that position and size Element components relative to their parents.
+- [Fonts](https://developer.playcanvas.com/user-manual/user-interface/fonts/): Create the MSDF Font assets that text elements need — in the Editor, or with the standalone font-tools for Engine, React and Web Components projects.
 - [Group Elements](https://developer.playcanvas.com/user-manual/user-interface/group-elements/): Use group elements as empty containers to position and parent other UI elements in the hierarchy.
 - [Image Elements](https://developer.playcanvas.com/user-manual/user-interface/image-elements/): Display textures or solid colors with tint and opacity, and optional custom materials on image elements.
 - [Input](https://developer.playcanvas.com/user-manual/user-interface/input/): Enable element input, initialize ElementInput with the app, and handle clicks, hovers, and touch on UI.

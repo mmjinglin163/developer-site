@@ -4,8 +4,8 @@
 > It is designed for consumption by Large Language Models (LLMs) and AI assistants.
 
 Base URL: https://developer.playcanvas.com
-Total Documents: 454
-Generated: 2026-06-18
+Total Documents: 469
+Generated: 2026-07-01
 
 ================================================================================
 
@@ -3239,6 +3239,28 @@ this.app.loader.getHandler('texture').maxRetries = 10;
 
 Editor projects can also override the default count via the [Network Settings](../editor/interface/settings/network.md) panel.
 
+## Limiting Concurrent Requests
+
+When an application loads a large number of assets at once, browsers can reject requests with `net::ERR_INSUFFICIENT_RESOURCES` once too many are in flight simultaneously. To guard against this, the engine limits the number of concurrent asset requests, queuing any beyond the limit and dispatching them as earlier requests complete.
+
+The default limit is **128**, which is safe across browsers while still saturating typical CDN throughput. You can change it globally:
+
+```javascript
+// Allow at most 50 asset requests to be in flight at once
+this.app.loader.maxConcurrentRequests = 50;
+
+// Disable throttling entirely - every request is sent immediately
+this.app.loader.maxConcurrentRequests = 0;
+```
+
+:::note
+
+This is a process-global limit (it applies to the shared HTTP layer, matching the browser's per-process resource limit), so with multiple applications on a page the last value set wins. It applies to all `XMLHttpRequest`-based loads, which covers the large majority of assets.
+
+:::
+
+Editor projects can also configure this via the [Network Settings](../editor/interface/settings/network.md) panel.
+
 ## Unloading Assets
 
 To free memory, you can unload assets that are no longer needed:
@@ -4784,6 +4806,12 @@ URL: https://developer.playcanvas.com/user-manual/editor/assets/inspectors/font/
 A Font asset contains an image with all the characters of the font that the user chose to include, and data related to how each character should be displayed. Font assets are used to render text using an [Element](/user-manual/editor/scenes/components/element/) component of type Text. To render text, add an Element Component to an Entity set its type to Text and drag and drop the Font asset to the Font slot of the Element Component.
 
 You can create a Font asset by uploading a font file ending in `.ttf`, `.ttc`, `.otf` or `.dfont`. We convert the uploaded font to a multi-channel signed distance field. This makes a font keep its details at various sizes so you only need to upload one font and use the same one for every size you want to display. The technique might work better for some fonts than others.
+
+:::tip Not using the Editor?
+
+Engine, React and Web Components projects can generate the same Font asset without the Editor using [font-tools](/user-manual/user-interface/fonts).
+
+:::
 
 Here are the properties that you can edit for a Font asset in the Editor:
 
@@ -6944,7 +6972,7 @@ Here is a breakdown of the available settings:
 
 URL: https://developer.playcanvas.com/user-manual/editor/interface/settings/network/
 
-Configures network retry behavior for asset loading.
+Configures network behavior for asset loading.
 
 :::note
 
@@ -6963,10 +6991,12 @@ Here is a breakdown of the available settings:
 | Setting | Description |
 | --- | --- |
 | **Asset Retries** | The maximum number of times to retry loading an asset if it fails to load. If an asset request fails, it will be retried with exponential backoff. |
+| **Max Concurrent Requests** | The maximum number of asset requests allowed to be in flight at the same time. Additional requests are queued and sent as earlier ones complete. This prevents the browser from rejecting requests with `net::ERR_INSUFFICIENT_RESOURCES` when a large number of assets load at once. Defaults to 128; set to 0 to disable throttling. |
 
 ### Notes
 
 - A higher retry count improves resilience for poor connections, but can delay error reporting.
+- A lower concurrent request limit avoids resource-exhaustion errors on large preloads, but may slightly increase total load time; the default of 128 is a safe starting point.
 
 --------------------------------------------------------------------------------
 
@@ -11788,13 +11818,182 @@ This section shows how you can build Gaussian splat-based apps using PlayCanvas.
 
 URL: https://developer.playcanvas.com/user-manual/gaussian-splatting/building/custom-shaders/
 
-The PlayCanvas Engine lets you customize how Gaussian Splats are rendered by overriding the `gsplatModifyVS` shader chunk. The chunk is set on the scene-wide gsplat material ([`app.scene.gsplat.material`](https://api.playcanvas.com/engine/classes/GSplatParams.html#material)), so a single custom shader applies to **all** splats in the scene.
+The PlayCanvas Engine lets you customize how Gaussian Splats are rendered by overriding shader chunks. The chunks are set on the scene-wide gsplat material ([`app.scene.gsplat.material`](https://api.playcanvas.com/engine/classes/GSplatParams.html#material)), so a single custom shader applies to **all** splats in the scene.
+
+There are two customization points, one per shader stage:
+
+| Chunk | Stage | Runs | Purpose |
+| --- | --- | --- | --- |
+| [`gsplatModifyVS`](/user-manual/gaussian-splatting/building/custom-shaders/vertex) | Vertex | Once per splat | Modify splat position, rotation, scale, color and opacity |
+| [`gsplatModifyPS`](/user-manual/gaussian-splatting/building/custom-shaders/fragment) | Fragment | Once per covered pixel | Modify the final color and alpha of each splat fragment |
+
+## Choosing a Stage
+
+**Use the [vertex stage](/user-manual/gaussian-splatting/building/custom-shaders/vertex)** for anything that is uniform across a splat: moving, scaling, rotating, hiding splats, or tinting them based on their position. It runs once per splat, so it is the cheaper option and the only one that can change splat geometry.
+
+**Use the [fragment stage](/user-manual/gaussian-splatting/building/custom-shaders/fragment)** when the effect needs to vary *across* a splat's footprint — for example when sampling a texture. It runs once per covered fragment, so it costs more on heavily overlapping splats.
+
+The two stages can be combined freely — implement either or both. Per-splat values can also be passed from the vertex stage to the fragment stage using [varying streams](/user-manual/gaussian-splatting/building/custom-shaders/varyings) — for example to classify a splat once and pay per-pixel cost only where needed.
+
+## Applying Chunks
+
+Both chunks follow the same pattern: set the chunk source for each shader language (GLSL covers WebGL, WGSL covers WebGPU), then update the material to recompile:
+
+```javascript
+const sceneMat = app.scene.gsplat.material;
+
+sceneMat.getShaderChunks('glsl').set('gsplatModifyVS', glslChunk);
+sceneMat.getShaderChunks('wgsl').set('gsplatModifyVS', wgslChunk);
+sceneMat.update();
+```
+
+Custom uniforms declared by your chunks are driven through material parameters each frame:
+
+```javascript
+app.on('update', (dt) => {
+    sceneMat.setParameter('uTime', currentTime);
+    sceneMat.update();
+});
+```
+
+## Removing Chunks
+
+To revert to default rendering, delete the chunk override and update the material:
+
+```javascript
+const sceneMat = app.scene.gsplat.material;
+sceneMat.getShaderChunks('glsl').delete('gsplatModifyVS');
+sceneMat.getShaderChunks('wgsl').delete('gsplatModifyVS');
+sceneMat.update();
+```
+
+## See Also
+
+- [Vertex Stage Customization](/user-manual/gaussian-splatting/building/custom-shaders/vertex) — move, scale and tint splats
+- [Fragment Stage Customization](/user-manual/gaussian-splatting/building/custom-shaders/fragment) — per-pixel color modification
+- [Varying Streams](/user-manual/gaussian-splatting/building/custom-shaders/varyings) — pass per-splat data from the vertex stage to the fragment stage
+- [Relighting](/user-manual/gaussian-splatting/building/relighting) — light splats using a proxy mesh, built on the fragment hook
+- [Work Buffer Rendering](/user-manual/gaussian-splatting/rendering-architecture/work-buffer-rendering) — customize the global render pass that draws the sorted splats
+
+--------------------------------------------------------------------------------
+
+## Fragment Stage
+
+URL: https://developer.playcanvas.com/user-manual/gaussian-splatting/building/custom-shaders/fragment/
+
+The `gsplatModifyPS` chunk customizes the final splat color in the fragment stage. It runs **once per covered pixel**, so effects can vary smoothly across a splat's footprint — something the per-splat vertex stage cannot do.
+
+**View Live Example** - Each splat rendered as a ring of its own color, with a highlight wave.
+
+## Overridable Function
+
+The chunk overrides a single function:
+
+It is called in the forward pass after the gaussian falloff and opacity dither have been evaluated, just before the color is premultiplied and output:
+
+- `gaussianUV` — the fragment's position within the gaussian footprint: `(0,0)` at the splat center, length 1 at the edge where the splat is clipped. `dot(gaussianUV, gaussianUV)` gives the normalized squared radius used by the falloff.
+- `color` — `rgb` is the splat color, `a` is the final fragment alpha. Both can be modified; alpha changes affect the blending weight, enabling custom falloffs or per-pixel fades.
+
+## Available Inputs
+
+Inside the chunk you can also use:
+
+- `gl_FragCoord` (GLSL) / `pcPosition` (WGSL) — the fragment's framebuffer position in pixels
+- `uScreenSize` — engine-provided `vec4` uniform: `xy` = render target size, `zw` = inverse size
+- Your own uniforms and textures, declared in the chunk and driven via material parameters
+
+## Example
+
+This is the chunk used by the live example above. It renders each splat as a ring of its own color: `gaussianUV` provides the position within the splat footprint, and `fwidth` converts the requested ring width from pixels into footprint units, keeping the ring a constant screen-space width at any zoom:
+
+Apply it the same way as the vertex chunk, using the `gsplatModifyPS` key, and drive the uniforms via material parameters:
+
+```javascript
+const sceneMat = app.scene.gsplat.material;
+
+sceneMat.getShaderChunks('glsl').set('gsplatModifyPS', glslFragShader);
+sceneMat.getShaderChunks('wgsl').set('gsplatModifyPS', wgslFragShader);
+sceneMat.setParameter('uRingWidth', 1);
+sceneMat.setParameter('uRingAlpha', 0.25);
+sceneMat.update();
+```
+
+For an effect that samples a screen-aligned texture at each fragment's screen position, see [Relighting](/user-manual/gaussian-splatting/building/relighting) — it modulates splats by the lighting of a proxy mesh rendered to an offscreen texture.
+
+## See Also
+
+- [Vertex Stage Customization](/user-manual/gaussian-splatting/building/custom-shaders/vertex) — move, scale and tint splats
+- [Varying Streams](/user-manual/gaussian-splatting/building/custom-shaders/varyings) — read per-splat values written by the vertex stage
+- [Relighting](/user-manual/gaussian-splatting/building/relighting) — light splats using a proxy mesh, built on this hook
+
+--------------------------------------------------------------------------------
+
+## Varying Streams
+
+URL: https://developer.playcanvas.com/user-manual/gaussian-splatting/building/custom-shaders/varyings/
+
+Varying streams pass custom per-splat data from the [vertex stage](/user-manual/gaussian-splatting/building/custom-shaders/vertex) to the [fragment stage](/user-manual/gaussian-splatting/building/custom-shaders/fragment). A value is computed **once per splat** in the `gsplatModifyVS` chunk and read by every fragment of that splat in the `gsplatModifyPS` chunk.
+
+The typical use is classification: decide something about a splat once, then let the fragment stage pay per-pixel cost only where needed.
+
+**View Live Example** - Splats clipped by an animated box, with per-pixel clipping only on splats intersecting the box surface.
+
+## Adding Streams
+
+Streams are managed via [`app.scene.gsplat.varyings`](https://api.playcanvas.com/engine/classes/GSplatParams.html#varyings):
+
+```javascript
+app.scene.gsplat.varyings.add([
+    { name: 'clipState', type: pc.TYPE_UINT32, components: 1 }
+]);
+
+// later, to remove
+app.scene.gsplat.varyings.remove(['clipState']);
+```
+
+Supported types are `TYPE_FLOAT32`, `TYPE_INT32` and `TYPE_UINT32`, with 1 to 4 components.
+
+For each stream, two functions are generated and made available to your shader chunks:
+
+| Function | Available in | Purpose |
+| --- | --- | --- |
+| `set<Name>(value)` | `gsplatModifyVS` | Write the per-splat value (runs once per splat) |
+| `get<Name>()` | `gsplatModifyPS` | Read the per-splat value for the current fragment |
+
+Adding or removing streams rebuilds the gsplat shaders, so configure them at startup rather than toggling them at runtime.
+
+## Example
+
+The live example above clips splats by an animated world-space box. The vertex stage classifies each splat against the box once per splat: splats fully inside are clipped entirely, splats fully outside set a flag so their fragments skip all work, and only splats intersecting the box surface run the per-pixel test.
+
+**1. Write the per-splat value in the vertex stage chunk:**
+
+**2. Read it in the fragment stage chunk** and early-out before the expensive per-pixel work:
+
+Both chunks are applied to the scene gsplat material as usual, using the `gsplatModifyVS` and `gsplatModifyPS` keys.
+
+## Memory Considerations
+
+On some platforms each component is stored in per-splat video memory, so its size scales with the number of rendered splats. Keep the data as compact as possible - prefer fewer components, and consider bit-packing multiple small values into a single uint component instead of using separate streams.
+
+## See Also
+
+- [Vertex Stage Customization](/user-manual/gaussian-splatting/building/custom-shaders/vertex) — where the values are written
+- [Fragment Stage Customization](/user-manual/gaussian-splatting/building/custom-shaders/fragment) — where the values are read
+
+--------------------------------------------------------------------------------
+
+## Vertex Stage
+
+URL: https://developer.playcanvas.com/user-manual/gaussian-splatting/building/custom-shaders/vertex/
+
+The `gsplatModifyVS` chunk customizes splats in the vertex stage. It runs **once per splat**, making it the right place to move, rotate, scale, hide or tint whole splats.
 
 **View Live Example** - See shader chunk customization in action with animated splats.
 
 ## Overridable Functions
 
-The `gsplatModifyVS` chunk lets you override three functions in the splat vertex stage:
+The `gsplatModifyVS` chunk lets you override three functions:
 
 | Function | Purpose |
 | --- | --- |
@@ -11831,20 +12030,10 @@ app.on('update', (dt) => {
 });
 ```
 
-## Removing a Custom Shader
-
-To revert to default rendering, delete the chunk override and update the material:
-
-```javascript
-const sceneMat = app.scene.gsplat.material;
-sceneMat.getShaderChunks('glsl').delete('gsplatModifyVS');
-sceneMat.getShaderChunks('wgsl').delete('gsplatModifyVS');
-sceneMat.update();
-```
-
 ## See Also
 
-- [Work Buffer Rendering](/user-manual/gaussian-splatting/rendering-architecture/work-buffer-rendering) — customize the global render pass that draws the sorted splats
+- [Fragment Stage Customization](/user-manual/gaussian-splatting/building/custom-shaders/fragment) — per-pixel color modification
+- [Varying Streams](/user-manual/gaussian-splatting/building/custom-shaders/varyings) — pass per-splat values computed here to the fragment stage
 
 --------------------------------------------------------------------------------
 
@@ -12153,11 +12342,11 @@ entity.gsplat.lodMultiplier = 2;   // multiplier between successive thresholds
 
 ### LOD Range Limits
 
-The `lodRangeMin` and `lodRangeMax` settings restrict which LOD levels can be used:
+The `lodRangeMin` and `lodRangeMax` settings on a gsplat component restrict which LOD levels that splat can use:
 
 ```javascript
-app.scene.gsplat.lodRangeMin = 0; // Allow highest quality LOD
-app.scene.gsplat.lodRangeMax = 3; // Never go lower than LOD 3
+entity.gsplat.lodRangeMin = 0; // Allow highest quality LOD
+entity.gsplat.lodRangeMax = 3; // Never go lower than LOD 3
 ```
 
 These settings are useful for:
@@ -12165,7 +12354,7 @@ These settings are useful for:
 - **Reducing downloads**: On devices with slow internet connections, setting a higher `lodRangeMin` prevents downloading the highest quality (and largest) LOD files
 - **Memory constraints**: Limiting LOD range reduces memory usage by avoiding loading of certain detail levels
 
-However, for typical rendering performance management, the global splat budget is more effective than LOD range limits. The budget automatically finds the right balance across all assets, while LOD range limits apply uniformly regardless of camera position or scene composition.
+However, for typical rendering performance management, the global splat budget is more effective than LOD range limits. The budget automatically finds the right balance across all assets, while LOD range limits apply per asset regardless of camera position or scene composition.
 
 ### Fast Time to First Frame
 
@@ -12186,8 +12375,8 @@ const gsplat = entity.gsplat;
 const lodLevels = gsplat.resource?.octree?.lodLevels;
 if (lodLevels) {
     const worstLod = lodLevels - 1;
-    app.scene.gsplat.lodRangeMin = worstLod;
-    app.scene.gsplat.lodRangeMax = worstLod;
+    gsplat.lodRangeMin = worstLod;
+    gsplat.lodRangeMax = worstLod;
 }
 
 // 2. Once the coarse data is loaded and rendered, open the LOD range back up
@@ -12197,8 +12386,8 @@ const onFrameReady = (camera, layer, ready, loadingCount) => {
         gsplatSystem.off('frame:ready', onFrameReady);
 
         // restore the full LOD range (0 = highest detail)
-        app.scene.gsplat.lodRangeMin = 0;
-        app.scene.gsplat.lodRangeMax = lodLevels - 1;
+        gsplat.lodRangeMin = 0;
+        gsplat.lodRangeMax = lodLevels - 1;
     }
 };
 gsplatSystem.on('frame:ready', onFrameReady);
@@ -13182,6 +13371,189 @@ scripts/esm/gsplat/gsplat-text.mjs
 - [Mesh to Splats](/user-manual/gaussian-splatting/building/procedural-splats/mesh)
 - [Image to Splats](/user-manual/gaussian-splatting/building/procedural-splats/image)
 - [Lines and Shapes](/user-manual/gaussian-splatting/building/procedural-splats/lines)
+
+--------------------------------------------------------------------------------
+
+## Relighting
+
+URL: https://developer.playcanvas.com/user-manual/gaussian-splatting/building/relighting/
+
+Gaussian splat scenes are captured with their lighting baked in. Relighting lets you change that lighting at runtime — add a sun with soft shadows, place point lights, or swap the environment — by lighting a **proxy mesh** of the scene with standard lights and transferring that lighting onto the splats per pixel.
+
+**View Live Example** - A splat scene relit by an HDRI environment, a PCSS directional light and shadow-casting omni lights.
+
+## How It Works
+
+1. A simplified mesh approximating the splat scene (for example reconstructed from the splats, or the photogrammetry mesh) is placed on a dedicated layer, together with the lights that should light it.
+2. The `GsplatRelighting` script renders that layer from a camera matching the main camera into an offscreen texture: lit mesh color in RGB, and a mesh coverage mask in alpha.
+3. A [fragment stage](/user-manual/gaussian-splatting/building/custom-shaders/fragment) shader chunk modulates each splat fragment by the lighting sampled at its own screen position. Because the texture is screen-aligned with the main camera, no reprojection is needed and the lighting transfers per pixel.
+
+Splats not covered by the proxy mesh (such as the sky) are left untinted, or scaled by a separate background multiplier so they can follow the environment exposure.
+
+## Setup
+
+The technique is packaged in the [`GsplatRelighting`](https://github.com/playcanvas/engine/blob/main/scripts/esm/gsplat/gsplat-relighting.mjs) script. Attach it to the entity holding your main camera:
+
+```javascript
+
+camera.addComponent('script');
+const relighting = camera.script.create(GsplatRelighting, {
+    properties: {
+        blend: 0.5,
+        brightness: 1
+    }
+});
+```
+
+Place the proxy mesh on the relighting layer, with a material configured to write the coverage mask:
+
+```javascript
+const meshMaterial = new pc.StandardMaterial();
+meshMaterial.diffuse = new pc.Color(0.5, 0.5, 0.5);
+relighting.configureMaterial(meshMaterial);
+
+const meshEntity = meshAsset.resource.instantiateRenderEntity();
+meshEntity.findComponents('render').forEach((render) => {
+    render.layers = [relighting.layer.id];
+    render.meshInstances.forEach((meshInstance) => {
+        meshInstance.material = meshMaterial;
+    });
+});
+app.root.addChild(meshEntity);
+```
+
+Then add lights to the same layer — any standard lights work, including image based lighting, shadow-casting directional and omni lights:
+
+```javascript
+const light = new pc.Entity('sun');
+light.addComponent('light', {
+    type: 'directional',
+    layers: [relighting.layer.id],
+    castShadows: true
+});
+app.root.addChild(light);
+```
+
+## Script Attributes
+
+| Attribute | Default | Purpose |
+| --- | --- | --- |
+| `blend` | 1 | How much the mesh lighting affects the splats (0 = original splats, 1 = fully modulated) |
+| `brightness` | 2 | Brightness of the lighting when tinting; 2 compensates the 0.5 gray albedo of the proxy material |
+| `background` | 1 | Multiplier for splats not covered by the mesh (e.g. the sky), letting them follow environment exposure |
+| `textureScale` | 1 | Resolution of the lighting texture relative to the back buffer |
+| `layerName` | `'Relighting'` | Name of the layer for the proxy mesh and lights (created if missing) |
+| `priority` | -1 | Priority of the internal camera; keep below the main camera so the texture renders first |
+
+The lighting texture is available as `relighting.texture` (HDR where supported), for debugging or further processing.
+
+## Notes
+
+- The proxy mesh quality directly drives the result: where its silhouette diverges from the splat surface, lighting boundaries land in the wrong place. A closer-matching mesh is the main quality lever.
+- Lights that do not move can use [`SHADOWUPDATE_THISFRAME`](https://api.playcanvas.com/engine/variables/SHADOWUPDATE_THISFRAME.html) to render their shadow maps once instead of every frame — the live example does this for its omni lights.
+
+## See Also
+
+- [Custom Shaders](/user-manual/gaussian-splatting/building/custom-shaders) — the shader chunk system this is built on
+- [Fragment Stage Customization](/user-manual/gaussian-splatting/building/custom-shaders/fragment) — the per-pixel hook used to apply the lighting
+
+--------------------------------------------------------------------------------
+
+## Render on Demand
+
+URL: https://developer.playcanvas.com/user-manual/gaussian-splatting/building/render-on-demand/
+
+For scenes that are often static — a product viewer, a configurator, an inspection tool — you don't need to redraw every frame. PlayCanvas can render **on demand**: set [`app.autoRender`](https://api.playcanvas.com/engine/classes/AppBase.html#autorender) to `false` and only draw a frame when something actually changes, by setting [`app.renderNextFrame`](https://api.playcanvas.com/engine/classes/AppBase.html#rendernextframe). An idle scene then leaves the GPU idle. See [Render on Demand](/user-manual/optimization/guidelines) in the optimization guidelines for the general technique.
+
+Gaussian splats add one wrinkle: a large [streamed scene](/user-manual/gaussian-splatting/building/lod-streaming) keeps loading data and adjusting level of detail in the background. That work is **decoupled from rendering** — it runs every frame whether or not a frame is drawn — so the scene keeps streaming in while the app sits idle. The splat system tells you when that background work has produced something new worth drawing, via the `frame:request` event.
+
+## The basic pattern
+
+Disable automatic rendering and render whenever the splat system asks for it:
+
+```javascript
+app.autoRender = false;
+
+app.systems.gsplat.on('frame:request', () => {
+    app.renderNextFrame = true;
+});
+```
+
+`frame:request` is fired once per frame, before rendering, whenever splat streaming has produced new data a render would show (newly streamed detail) or an asynchronous sort result is ready to be applied. Handling it keeps a streaming scene converging to full detail without rendering every frame in between.
+
+## What raises `frame:request`, and what you render yourself
+
+`frame:request` covers **changes to the splat data itself** — the engine raises it for you. Changes that only affect how the *current* scene is presented do not, so you request those renders yourself:
+
+| Change | Raises `frame:request`? |
+| --- | --- |
+| Streaming progress (LOD detail loading in) | Yes — handled for you |
+| Splat budget, LOD distances / range | Yes — handled for you |
+| Camera movement | No — render it yourself |
+| Canvas / viewport resize | No — render it yourself |
+| Material parameters (e.g. alpha clipping) | No — render it yourself |
+| Shader animation (e.g. an animated reveal effect) | No — render it yourself |
+| Adding or removing a splat, camera, or layer | No — render it yourself |
+
+For anything in the "render it yourself" rows, set `app.renderNextFrame = true` when you make the change. For example, to keep a fly/orbit camera interactive, render whenever it has moved:
+
+```javascript
+const lastPos = new pc.Vec3();
+const lastRot = new pc.Quat();
+
+app.on('update', () => {
+    const pos = camera.getPosition();
+    const rot = camera.getRotation();
+    if (!pos.equals(lastPos) || !rot.equals(lastRot)) {
+        app.renderNextFrame = true;
+        lastPos.copy(pos);
+        lastRot.copy(rot);
+    }
+});
+```
+
+:::note
+Adding or removing cameras, layers, or gsplat components only registers on a **rendered** frame, so make sure at least one frame is rendered after such a change. This is why an app should keep rendering normally while the scene first loads (see below), and only switch to on-demand rendering once it is up and running.
+:::
+
+## Combining with fast time to first frame
+
+On-demand rendering pairs naturally with the [fast time to first frame](/user-manual/gaussian-splatting/building/performance#fast-time-to-first-frame) technique. While the scene is loading (and while any intro/reveal animation plays) you want to render every frame, then switch to on-demand once everything is in place:
+
+1. Leave `app.autoRender = true` while the scene loads its first frames.
+2. Wait for the splat system's `frame:ready` event to report that the scene is fully loaded, sorted and drawn.
+3. Switch to `app.autoRender = false` and drive rendering from `frame:request` plus your own camera / resize / setting changes.
+
+```javascript
+const gsplatSystem = app.systems.gsplat;
+
+const onFrameReady = (camera, layer, ready, loadingCount) => {
+    if (ready && loadingCount === 0) {
+        gsplatSystem.off('frame:ready', onFrameReady);
+
+        // the scene is fully shown — switch to on-demand rendering from here
+        app.autoRender = false;
+    }
+};
+gsplatSystem.on('frame:ready', onFrameReady);
+
+gsplatSystem.on('frame:request', () => {
+    app.renderNextFrame = true;
+});
+```
+
+`frame:ready` and `frame:request` are complementary: `frame:ready` tells you when a *rendered* frame is fully sorted and complete (useful for the initial display, and for capture workflows), while `frame:request` tells you when there is new streamed data worth drawing.
+
+## Live example
+
+This example renders a single (non-streamed) splat on demand: it stops drawing once the splat is shown and only renders again when the camera moves, the window resizes, or a setting changes.
+
+## See also
+
+- [Render on Demand (general)](/user-manual/optimization/guidelines)
+- [Performance](/user-manual/gaussian-splatting/building/performance) and [Fast Time to First Frame](/user-manual/gaussian-splatting/building/performance#fast-time-to-first-frame)
+- [LOD Streaming](/user-manual/gaussian-splatting/building/lod-streaming)
+- [GSplatComponentSystem API](https://api.playcanvas.com/engine/classes/GSplatComponentSystem.html)
 
 --------------------------------------------------------------------------------
 
@@ -15142,28 +15514,22 @@ PlayCanvas provides more than one rendering pipeline — a *renderer* — for Ga
 
 ## Available Renderers
 
-### Raster with CPU Sorting (default)
+### Raster with CPU Sorting
 
 `GSPLAT_RENDERER_RASTER_CPU_SORT`
 
-- The default renderer, supported on both WebGL 2 and WebGPU.
+- Supported on both WebGL 2 and WebGPU, and automatically selected on WebGL devices.
 - Splats are sorted on the CPU in a background Web Worker, then rasterized.
 - Supports the full feature set, including XR rendering and shader customization.
 - Because sorting is asynchronous, very fast camera motion can briefly reveal slightly out-of-date ordering until the next sort completes.
 
-### Raster with GPU Sorting (experimental)
+### Raster with GPU Sorting
 
 `GSPLAT_RENDERER_RASTER_GPU_SORT`
 
-- **Experimental**, and **WebGPU only** — on WebGL devices it automatically falls back to CPU sorting.
+- **WebGPU only**, and automatically selected on WebGPU devices — on WebGL it falls back to CPU sorting.
 - Splats are culled and sorted on the GPU each frame, avoiding the Web Worker round-trip. This lowers sorting latency and scales better to large splat counts.
-- Has **limited functionality** and does not yet implement the full feature set. In particular, **XR rendering** and **shader customization** are not currently supported.
-
-:::info Experimental
-
-The GPU sorting renderer is experimental and missing some features (for example XR rendering and shader customization). Use the CPU sorting renderer if your application depends on those.
-
-:::
+- Supports the full feature set, including XR rendering and shader customization.
 
 ## Selecting a Renderer
 
@@ -15176,7 +15542,7 @@ app.scene.gsplat.renderer = pc.GSPLAT_RENDERER_RASTER_GPU_SORT;
 
 The available options are:
 
-- `pc.GSPLAT_RENDERER_AUTO` — *(default)* automatically selects the best renderer for the current device.
+- `pc.GSPLAT_RENDERER_AUTO` — *(default)* automatically selects the best renderer for the current device: GPU sorting on WebGPU, CPU sorting on WebGL.
 - `pc.GSPLAT_RENDERER_RASTER_CPU_SORT` — raster with CPU sorting.
 - `pc.GSPLAT_RENDERER_RASTER_GPU_SORT` — raster with GPU sorting (WebGPU only).
 
@@ -15937,6 +16303,8 @@ Your modifier code must implement three functions:
 | `modifySplatColor(vec3 center, inout vec4 color)` | Modify color based on work buffer data |
 
 `modifySplatCenter` always executes first. You can use it to sample extra streams and store values in global variables, or execute code shared between the three functions.
+
+In addition to this vertex-stage modifier, the final splat color can also be customized per pixel using the `gsplatModifyPS` fragment chunk — see [Fragment Stage Customization](/user-manual/gaussian-splatting/building/custom-shaders/fragment).
 
 ### Removing the Modifier
 
@@ -20204,92 +20572,40 @@ For further information, refer to the [ShaderMaterial API documentation](https:/
 
 --------------------------------------------------------------------------------
 
-## Compute Shaders
+## Compute Shaders Advanced
 
-URL: https://developer.playcanvas.com/user-manual/graphics/shaders/compute-shaders/
+URL: https://developer.playcanvas.com/user-manual/graphics/shaders/compute-shaders-advanced/
 
-Compute shaders are programs that run general-purpose computations on the GPU, independent of the rendering pipeline. Unlike vertex and fragment shaders, compute shaders are not tied to geometry or pixels—they operate on arbitrary data, making them ideal for tasks such as particle simulation, image processing, physics calculations, and procedural content generation.
+For most compute shaders, the simplified syntax described on the [Compute Shaders](/user-manual/graphics/shaders/compute-shaders) page is all you need — declare resources in WGSL and the engine reflects them automatically.
 
-:::warning
+This page covers **manual** control over bind groups, which remains fully supported. You provide a `computeBindGroupFormat` (and optionally `computeUniformBufferFormats`) describing the resources yourself, and write explicit `@group`/`@binding` indices in the WGSL. Reach for this when you need:
 
-Compute shaders are only supported on the **WebGPU** platform. They are not available when using WebGL.
+- precise control over the binding layout,
+- to interop with engine- or application-owned buffers at fixed bindings, or
+- to mix explicitly-bound resources with reflected ones.
+
+:::note
+
+Manual bind groups are not deprecated. If you have existing compute shaders that hand-author a `computeBindGroupFormat`, they continue to work unchanged — you can migrate them to the simplified syntax whenever convenient, or not at all.
 
 :::
 
-## Checking for Support
+## Bind Group Format
 
-Before using compute shaders, verify that the device supports them:
-
-```javascript
-if (device.supportsCompute) {
-    // Compute shaders are available
-}
-```
-
-## WGSL language extensions
-
-When the browser exposes optional WGSL features (for example [linear workgroup / invocation indexing](https://developer.chrome.com/blog/new-in-webgpu-147-148#wgsl_linear_indexing_extension), subgroups, or half-float), the engine sets the matching `device.supports*` flags and `CAPS_*` preprocessor defines. For a full list and usage notes, see [WGSL language extensions](/user-manual/graphics/shaders/wgsl-capabilities#wgsl-language-extensions).
-
-## Creating a Compute Shader
-
-A compute shader is created using the `Shader` class with WGSL code. The shader definition includes the compute shader source (`cshader`), bind group format, and optionally uniform buffer formats.
-
-### Basic Shader Definition
+The `computeBindGroupFormat` defines what resources are available to the compute shader. When you supply it, write explicit `@group`/`@binding` indices in the WGSL to match. You can bind various types of resources:
 
 ```javascript
 const shader = new pc.Shader(device, {
     name: 'MyComputeShader',
     shaderLanguage: pc.SHADERLANGUAGE_WGSL,
-    cshader: `
-        @compute @workgroup_size(1, 1, 1)
-        fn main(@builtin(global_invocation_id) global_id: vec3u) {
-            // Compute shader logic here
-        }
-    `,
+    cshader: shaderCode,
     computeBindGroupFormat: new pc.BindGroupFormat(device, [
         // Resource bindings go here
     ])
 });
 ```
 
-By default, the engine expects the entry point function to be named `main`. You can use `computeEntryPoint` to specify a different function name, which also allows a single shader source to contain multiple entry points:
-
-```javascript
-const shaderSource = `
-    @compute @workgroup_size(64, 1, 1)
-    fn initParticles(@builtin(global_invocation_id) global_id: vec3u) {
-        // Initialize particles
-    }
-
-    @compute @workgroup_size(64, 1, 1)
-    fn updateParticles(@builtin(global_invocation_id) global_id: vec3u) {
-        // Update particles
-    }
-`;
-
-// Create separate shaders from the same source, each using a different entry point
-const initShader = new pc.Shader(device, {
-    name: 'InitParticles',
-    shaderLanguage: pc.SHADERLANGUAGE_WGSL,
-    cshader: shaderSource,
-    computeEntryPoint: 'initParticles',
-    // ...
-});
-
-const updateShader = new pc.Shader(device, {
-    name: 'UpdateParticles',
-    shaderLanguage: pc.SHADERLANGUAGE_WGSL,
-    cshader: shaderSource,
-    computeEntryPoint: 'updateParticles',
-    // ...
-});
-```
-
-### Bind Group Format
-
-The `computeBindGroupFormat` defines what resources are available to the compute shader. You can bind various types of resources:
-
-#### Storage Buffers
+### Storage Buffers
 
 Storage buffers allow read/write access to large amounts of data:
 
@@ -20308,7 +20624,7 @@ In WGSL, access storage buffers like this:
 @group(0) @binding(1) var<storage, read> spheres: array<vec4f>;
 ```
 
-#### Storage Textures
+### Storage Textures
 
 Storage textures allow the compute shader to write directly to a texture:
 
@@ -20325,7 +20641,7 @@ In WGSL:
 textureStore(outputTexture, vec2i(global_id.xy), color);
 ```
 
-#### Input Textures
+### Input Textures
 
 Input textures provide read-only texture data. The last parameter controls whether a sampler is included:
 
@@ -20356,7 +20672,7 @@ In compute shaders, use `textureSampleLevel` instead of `textureSample` because 
 
 :::
 
-#### Uniform Buffers
+### Uniform Buffers
 
 For passing uniform data to compute shaders, first define the uniform buffer format:
 
@@ -20407,6 +20723,115 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
 }
 ```
 
+## Mixing Reflected and Manual Resources
+
+A caller-provided `computeBindGroupFormat` and the simplified (reflected) syntax can be used together in the same shader:
+
+- Resources you describe in `computeBindGroupFormat` use the bindings you give them, in **group 0**.
+- Any resources you declare with the simplified syntax (no `@group`/`@binding`) are still reflected — they are placed in a **separate bind group at index 1**.
+- Explicitly-bound (`@group`/`@binding`) declarations in the WGSL are left untouched.
+
+If you do **not** provide a `computeBindGroupFormat`, reflected resources are placed in group 0 instead (see [Compute Shaders](/user-manual/graphics/shaders/compute-shaders)).
+
+In all cases, values are assigned by name with `setParameter`, regardless of whether a resource is manually bound or reflected.
+
+## Examples
+
+The following examples use manually-authored bind group formats:
+
+--------------------------------------------------------------------------------
+
+## Compute Shaders
+
+URL: https://developer.playcanvas.com/user-manual/graphics/shaders/compute-shaders/
+
+Compute shaders are programs that run general-purpose computations on the GPU, independent of the rendering pipeline. Unlike vertex and fragment shaders, compute shaders are not tied to geometry or pixels—they operate on arbitrary data, making them ideal for tasks such as particle simulation, image processing, physics calculations, and procedural content generation.
+
+:::warning
+
+Compute shaders are only supported on the **WebGPU** platform. They are not available when using WebGL.
+
+:::
+
+## Checking for Support
+
+Before using compute shaders, verify that the device supports them:
+
+```javascript
+if (device.supportsCompute) {
+    // Compute shaders are available
+}
+```
+
+## WGSL language extensions
+
+When the browser exposes optional WGSL features (for example [linear workgroup / invocation indexing](https://developer.chrome.com/blog/new-in-webgpu-147-148#wgsl_linear_indexing_extension), subgroups, or half-float), the engine sets the matching `device.supports*` flags and `CAPS_*` preprocessor defines. For a full list and usage notes, see [WGSL language extensions](/user-manual/graphics/shaders/wgsl-capabilities#wgsl-language-extensions).
+
+## Creating a Compute Shader
+
+A compute shader is created using the `Shader` class with a WGSL `cshader` source. Declare the resources it uses — uniforms, storage buffers, textures, and storage textures — with the simplified WGSL syntax (no `@group`/`@binding`), and the engine reflects them from the source and builds the bind group automatically. See [WGSL Reflection](/user-manual/graphics/shaders/wgsl-reflection) for the full resource declaration syntax.
+
+### Basic Shader Definition
+
+```javascript
+const shader = new pc.Shader(device, {
+    name: 'MyComputeShader',
+    shaderLanguage: pc.SHADERLANGUAGE_WGSL,
+    cshader: `
+        // resources declared with the simplified syntax are reflected automatically -
+        // no computeBindGroupFormat required
+        uniform count: u32;
+        var<storage, read_write> data: array<f32>;
+
+        @compute @workgroup_size(64, 1, 1)
+        fn main(@builtin(global_invocation_id) global_id: vec3u) {
+            let i = global_id.x;
+            if (i >= uniform.count) { return; }
+            data[i] = data[i] * 2.0;
+        }
+    `
+});
+```
+
+:::note
+
+If you need explicit control over bind groups — a hand-authored `computeBindGroupFormat`, explicit `@group`/`@binding` indices, or mixing manually-bound resources with reflected ones — see [Compute Shaders Advanced](/user-manual/graphics/shaders/compute-shaders-advanced).
+
+:::
+
+### Entry Points
+
+By default, the engine expects the entry point function to be named `main`. You can use `computeEntryPoint` to specify a different function name, which also allows a single shader source to contain multiple entry points:
+
+```javascript
+const shaderSource = `
+    @compute @workgroup_size(64, 1, 1)
+    fn initParticles(@builtin(global_invocation_id) global_id: vec3u) {
+        // Initialize particles
+    }
+
+    @compute @workgroup_size(64, 1, 1)
+    fn updateParticles(@builtin(global_invocation_id) global_id: vec3u) {
+        // Update particles
+    }
+`;
+
+// Create separate shaders from the same source, each using a different entry point
+const initShader = new pc.Shader(device, {
+    name: 'InitParticles',
+    shaderLanguage: pc.SHADERLANGUAGE_WGSL,
+    cshader: shaderSource,
+    computeEntryPoint: 'initParticles'
+});
+
+const updateShader = new pc.Shader(device, {
+    name: 'UpdateParticles',
+    shaderLanguage: pc.SHADERLANGUAGE_WGSL,
+    cshader: shaderSource,
+    computeEntryPoint: 'updateParticles'
+});
+```
+
 ## Creating a Compute Instance
 
 The `Compute` class represents an executable instance of a compute shader with its associated parameters:
@@ -20417,17 +20842,16 @@ const compute = new pc.Compute(device, shader, 'MyComputeInstance');
 
 ## Setting Parameters
 
-Use `setParameter` to bind resources and set uniform values:
+Use `setParameter` to bind resources and set uniform values. Resources are matched to the shader declarations by name:
 
 ```javascript
 // Bind a storage buffer
-compute.setParameter('particles', storageBuffer);
+compute.setParameter('data', storageBuffer);
 
 // Bind a texture
 compute.setParameter('inputTexture', texture);
 
 // Set uniform values
-compute.setParameter('time', 1.5);
 compute.setParameter('count', 1024);
 compute.setParameter('tint', [1.0, 0.5, 0.0, 1.0]);
 ```
@@ -20489,6 +20913,12 @@ compute2.setupDispatch(128, 128);
 device.computeDispatch([compute1, compute2], 'BatchedDispatch');
 ```
 
+:::note
+
+`device.computeDispatch` records into the current frame's command encoder, so it must be called **within the render frame** — typically from an `app.on('update', ...)` handler. Calling it from a bare `setTimeout` or a detached promise outside the frame is unreliable and may silently skip the dispatch.
+
+:::
+
 ### Workgroup Size
 
 The total number of invocations is `dispatchSize × workgroupSize`. For example, if you dispatch with `(width, height)` and your shader has `@workgroup_size(1, 1, 1)`, you get `width × height` invocations.
@@ -20530,13 +20960,7 @@ Each slot holds three 32-bit unsigned integers representing the x, y, and z work
 
 ### Writing Dispatch Parameters
 
-Pass the indirect buffer to your compute shader so it can write dispatch parameters. In your bind group format:
-
-```javascript
-new pc.BindStorageBufferFormat('indirectBuffer', pc.SHADERSTAGE_COMPUTE)
-```
-
-In WGSL, define a struct matching the indirect dispatch layout and write the parameters:
+Declare the indirect buffer in your compute shader (reflected automatically) and write the dispatch parameters into the reserved slot:
 
 ```wgsl
 struct DispatchIndirectArgs {
@@ -20545,8 +20969,8 @@ struct DispatchIndirectArgs {
     z: u32
 };
 
-@group(0) @binding(0) var<storage, read_write> indirectBuffer: array<DispatchIndirectArgs>;
-@group(0) @binding(1) var<uniform> uniforms: Uniforms; // Contains slot index
+var<storage, read_write> indirectBuffer: array<DispatchIndirectArgs>;
+uniform slot: u32; // slot index to write into
 
 @compute @workgroup_size(1)
 fn main() {
@@ -20554,9 +20978,9 @@ fn main() {
     let workloadSize = calculateWorkload();
 
     // Write dispatch parameters to the slot
-    indirectBuffer[uniforms.slot].x = workloadSize;
-    indirectBuffer[uniforms.slot].y = 1u;
-    indirectBuffer[uniforms.slot].z = 1u;
+    indirectBuffer[uniform.slot].x = workloadSize;
+    indirectBuffer[uniform.slot].y = 1u;
+    indirectBuffer[uniform.slot].z = 1u;
 }
 ```
 
@@ -20674,8 +21098,7 @@ const shader = new pc.Shader(device, {
     cdefines: new Map([
         ['{WORKGROUP_SIZE}', '64']
     ]),
-    cincludes: pc.ShaderChunks.get(device, pc.SHADERLANGUAGE_WGSL),
-    // ...
+    cincludes: pc.ShaderChunks.get(device, pc.SHADERLANGUAGE_WGSL)
 });
 ```
 
@@ -20685,15 +21108,15 @@ The `{WORKGROUP_SIZE}` placeholders are replaced with `64` before compilation. S
 
 Explore these live examples demonstrating various compute shader use cases:
 
+- Edge Detect - Image processing with edge detection
+
+- Particles - GPU-based particle simulation with collision detection
+
 - Histogram - Compute image histogram using atomic operations
 
 - Texture Generation - Generate and modify textures with compute shaders
 
-- Particles - GPU-based particle simulation with collision detection
-
 - Vertex Update - Modify mesh vertex buffers in real-time
-
-- Edge Detect - Image processing with edge detection
 
 - Indirect Draw - GPU-driven rendering with indirect draw calls
 
@@ -20828,6 +21251,23 @@ By doing this you will no longer see warning messages in the console.
 ## Chunk changes
 
 The following tables break down the chunk changes by Engine release.
+
+### *Engine v2.20*
+
+#### MSDF text rendering reworked
+
+The `msdfPS` chunk used by `ElementComponent` text was reworked to render glyphs at their true (designer-intended) edge and to anti-alias from the gradient of the distance field, fixing a fixed inward erosion that broke thin junctions (e.g. the crossbar of an `f`). See [PR #8935](https://github.com/playcanvas/engine/pull/8935) for details.
+
+As part of this, the engine no longer sets the `font_pxrange` and `font_textureWidth` uniforms, and the `map()` helper was removed from the chunk. A custom `msdfPS` override copied from an earlier release that still references these uniforms will no longer receive their values (they default to `0`, producing a divide-by-zero in the old smoothing calculation), resulting in broken or invisible text.
+
+Affected chunks:
+
+- `src/scene/shader-lib/glsl/chunks/common/frag/msdf.js`
+- `src/scene/shader-lib/wgsl/chunks/common/frag/msdf.js`
+
+**Migration:** Update any custom `msdfPS` override against the latest chunk — remove references to `font_pxrange`, `font_textureWidth` and `map()`, and adopt the new edge/anti-aliasing logic. Deliberate weight adjustments should use the per-font `font_sdfIntensity` (or `outlineThickness`) rather than a global threshold bias.
+
+---
 
 ### *Engine v2.16*
 
@@ -21774,7 +22214,7 @@ fn main(
 
 URL: https://developer.playcanvas.com/user-manual/graphics/shaders/wgsl-reflection/
 
-PlayCanvas reflects resources directly from your WGSL shader source: you declare uniforms, textures, and storage buffers without `@group`/`@binding` indices, and the engine parses these declarations, builds the bind group format, and assigns the bindings automatically. This simplified syntax is used by vertex and fragment shaders.
+PlayCanvas reflects resources directly from your WGSL shader source: you declare uniforms, textures, and storage buffers without `@group`/`@binding` indices, and the engine parses these declarations, builds the bind group format, and assigns the bindings automatically. This simplified syntax is used by vertex, fragment, and compute shaders.
 
 The following sections outline how resources are declared and reflected. For the vertex/fragment-only constructs (attributes, varyings, and fragment outputs), see [WGSL Vertex and Fragment Shaders](/user-manual/graphics/shaders/wgsl-vertex-fragment-shaders).
 
@@ -21955,6 +22395,22 @@ struct Particle {
 // particle storage buffer in read-only mode
 var<storage, read> particles: array<Particle>;
 ```
+
+### Storage Textures
+
+Storage textures let a shader write (and optionally read) texels directly, without a sampler. They are most commonly used as the output of a compute shader. Declare them with the simplified `texture_storage_*` syntax, specifying the format and the access mode:
+
+```wgsl
+// write-only storage texture (the common case for compute output)
+var outputTexture: texture_storage_2d<rgba8unorm, write>;
+
+// writing a texel
+textureStore(outputTexture, vec2i(global_id.xy), color);
+```
+
+The access mode can be `write`, `read`, or `read_write`. Reading from a storage texture (`read` / `read_write`) requires the `device.supportsStorageTextureRead` capability and an author-supplied `requires readonly_and_readwrite_storage_textures;` directive — see [WGSL Capabilities](/user-manual/graphics/shaders/wgsl-capabilities#wgsl-language-extensions).
+
+The texture you bind must be created with the `storage: true` option (see [Compute Shaders](/user-manual/graphics/shaders/compute-shaders)).
 
 --------------------------------------------------------------------------------
 
@@ -23737,11 +24193,13 @@ Components add behavior to entities. Nest them inside an `` to attach the corres
 - **[``](./align)** - Alignment helper
 - **[``](./camera)** - Camera and viewport
 - **[``](./collision)** - Physics collision shapes
+- **[``](./element)** - 2D UI content (text, image or group)
 - **[``](./environment)** - Scene environment and skybox
 - **[``](./gsplat)** - Gaussian splat rendering
 - **[``](./light)** - Directional, point and spot lights
 - **[``](./render)** - Mesh rendering (primitives and assets)
 - **[``](./rigidbody)** - Physics rigid bodies
+- **[``](./screen)** - 2D UI screen (screen or world space)
 - **[``](./script)** - Custom script components
 
 ## Hooks
@@ -23915,6 +24373,36 @@ Learn more about [Collision Components](https://api.playcanvas.com/engine/classe
 ```tsx asTypedoc
 
 type $ = React.ComponentProps<typeof Collision>;
+
+```
+
+--------------------------------------------------------------------------------
+
+## `<Element/>`
+
+URL: https://developer.playcanvas.com/user-manual/react/api/element/
+
+# ``
+
+The `` component draws 2D UI content — text, an image, or an invisible group — on an [``](../entity). Elements live under a [``](../screen), which positions them in screen or world space. Set the `type` prop to `"text"`, `"image"` or `"group"`, and use `anchor` and `pivot` to control how the element is positioned and resized within its parent.
+
+## Usage
+
+Add an `` to an [``](../entity) that descends from a [``](../screen). For text, set `type="text"` and supply a font via `fontAsset` (load one with [`useFont`](../hooks/use-asset#usefont)).
+
+```tsx
+
+```
+
+The example below renders screen-space text. The font is an MSDF asset created with [font-tools](/user-manual/user-interface/fonts) and loaded with [`useFont`](../hooks/use-asset#usefont).
+
+Learn more about the [Element Component](https://api.playcanvas.com/engine/classes/ElementComponent.html) in the PlayCanvas documentation.
+
+## Properties
+
+```tsx asTypedoc
+
+type $ = React.ComponentProps<typeof Element>;
 
 ```
 
@@ -25066,6 +25554,37 @@ type $ = React.ComponentProps<typeof RigidBody>;
 
 --------------------------------------------------------------------------------
 
+## `<Screen/>`
+
+URL: https://developer.playcanvas.com/user-manual/react/api/screen/
+
+# ``
+
+The `` component turns an [``](../entity) into a 2D UI screen that lays out [``](../element) children. By default it renders in screen space (a 2D overlay), but it can also be placed in world space for in-scene UI. Use `referenceResolution` and `scaleMode` to control how the UI scales across different display sizes.
+
+## Usage
+
+Attach a `` to an [``](../entity), then nest entities carrying an [``](../element) to draw text or images.
+
+```tsx
+
+</Entity>
+```
+
+This example renders a centred line of screen-space text using a `` and a text [``](../element).
+
+Learn more about the [Screen Component](https://api.playcanvas.com/engine/classes/ScreenComponent.html) in the PlayCanvas documentation.
+
+## Properties
+
+```tsx asTypedoc
+
+type $ = React.ComponentProps<typeof Screen>;
+
+```
+
+--------------------------------------------------------------------------------
+
 ## `<Script/>`
 
 URL: https://developer.playcanvas.com/user-manual/react/api/script/
@@ -25267,6 +25786,10 @@ Less talking, more doing. Each example below runs live on the page and is fully 
     <div style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: '6px' }}>Physics</div>
     <div style={{ opacity: 0.8 }}>Disturb a cluster of rigid bodies in zero gravity with the pointer.</div>
   </a>
+  <a className="card padding--md shadow--md" href="/user-manual/react/examples/text" style={{ color: 'inherit', textDecoration: 'none' }}>
+    <div style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: '6px' }}>Text</div>
+    <div style={{ opacity: 0.8 }}>Render screen-space UI text with a Screen and a text Element, using an MSDF font from font-tools.</div>
+  </a>
 </div>
 
 Want to build something of your own? Spin up a full project in seconds with the [StackBlitz template](https://playcanvas-react.vercel.app/new), or browse the [interactive playground](https://playcanvas-react.vercel.app/examples) for more live examples.
@@ -25296,6 +25819,16 @@ Hover over the capsule to see entities and lights animate with springs from the 
 URL: https://developer.playcanvas.com/user-manual/react/examples/physics/
 
 Move the pointer through the scene to disturb a cluster of rigid bodies in zero gravity.
+
+--------------------------------------------------------------------------------
+
+## Text
+
+URL: https://developer.playcanvas.com/user-manual/react/examples/text/
+
+Render screen-space UI text by attaching a `Screen` to one entity and a text `Element` to a child entity. Both come from `@playcanvas/react/components`, and the font is an MSDF asset created with [font-tools](/user-manual/user-interface/fonts) and loaded with [`useFont`](/user-manual/react/api/hooks/use-asset#usefont).
+
+The demo renders [Source Sans 3](https://github.com/adobe-fonts/source-sans) (SIL Open Font License).
 
 --------------------------------------------------------------------------------
 
@@ -29575,7 +30108,7 @@ Press **V** to toggle between modes, or use the WASD keys to automatically switc
 
 ## Camera Settings
 
-Access camera settings through the **View Options** panel (gear icon):
+Access camera settings through the **Settings** panel (gear icon):
 
 | Setting | Range | Default | Description |
 |---------|-------|---------|-------------|
@@ -29722,7 +30255,7 @@ In centers mode:
 - Gaussians are overlaid with a blue dot at their center.
 - Selections apply to all Gaussian centers independent of their screen depth.
 - Centers are colored depending on their selection state. By default, blue is used for unselected Gaussians and yellow for selected Gaussians.
-- You can control the size that centers are rendered in the VIEW OPTIONS panel.
+- You can control the size that centers are rendered in the SETTINGS panel.
 
 <img width="1224" alt="Screenshot 2025-01-06 at 08 51 53" src="/img/user-manual/supersplat/editor/centers-mode.png" />
 
@@ -29900,9 +30433,11 @@ The SuperSplat Editor's interface appears as follows:
 
 [Image: supersplat-interface]
 
+## Interface Elements
+
 The key elements of the interface are labeled:
 
-## Menu Bar
+### Menu Bar
 
 The Menu Bar gives you access to the most commonly used functions in the SuperSplat Editor.
 
@@ -29938,6 +30473,36 @@ The Timeline allows you to create and delete keyframes for the viewport camera. 
 ### Histogram Panel
 
 This panel allows you to inspect the Gaussian data in your scenes, visualized as a histogram along with a set of numerical statistics.
+
+## Language
+
+SuperSplat's interface is available in several languages. By default it follows your browser's language — the **Automatic** setting — but you can choose a specific language from the **Language** dropdown at the top of the **Settings** panel (the gear icon in the [Right Toolbar](#right-toolbar)).
+
+Switching language takes effect immediately. There is no page reload, so your loaded scene and any unsaved work are preserved. Your choice is remembered across sessions until you change it again or switch back to **Automatic**.
+
+The following languages are supported:
+
+* English — `en`
+* Deutsch (German) — `de`
+* Español (Spanish) — `es`
+* Français (French) — `fr`
+* 日本語 (Japanese) — `ja`
+* 한국어 (Korean) — `ko`
+* Português (Brasil) (Brazilian Portuguese) — `pt-BR`
+* Русский (Russian) — `ru`
+* 中文 (简体) (Simplified Chinese) — `zh-CN`
+
+:::tip Share a link in a specific language
+
+Add a `?lng=` query parameter set to one of the language codes listed above (for example, `?lng=ja`) to pin the language for a shared link. This overrides both your saved choice and the browser default, so the link always opens in that language.
+
+:::
+
+:::tip Missing your language?
+
+SuperSplat is [open source](https://github.com/playcanvas/supersplat), and its translations are plain JSON files under [`static/locales`](https://github.com/playcanvas/supersplat/tree/main/static/locales). [Open an issue](https://github.com/playcanvas/supersplat/issues) to request a new language, or open a pull request adding or improving a locale file.
+
+:::
 
 --------------------------------------------------------------------------------
 
@@ -30332,20 +30897,29 @@ Explore is driven entirely by URL parameters, so any filtered view is a shareabl
 
 | Value | Order |
 |-------|-------|
-| `likes` (default) | Most-liked first |
+| `trending` (default) | Splats gaining the most traction right now |
 | `newest` | Most recently published first |
 | `oldest` | Oldest first |
 | `views` | Most-viewed first |
+| `likes` | Most-liked first |
 | `largest` | Largest file size first |
 | `smallest` | Smallest file size first |
 
+**Trending** is the default view at [superspl.at](https://superspl.at). It ranks splats by a recency-weighted engagement score — recent likes and views count for the most (engagement from the past week or so carries the most weight), with likes weighted above views — and is refreshed periodically, so the page surfaces what's popular *now* rather than all-time favourites.
+
+:::note
+
+Trending already accounts for recency, so it ignores the **time window** below — that control is hidden while Trending is selected.
+
+:::
+
 ### Time window (`?time=...`)
 
-Restricts the result set to splats published within a window.
+Restricts the result set to splats published within a window. This applies to every sort **except `trending`** (the default), which always spans all time — selecting Trending hides the time control and clears any `?time=` value from the URL. For the other sorts the window defaults to `month` (the last 30 days).
 
 | Value | Window |
 |-------|--------|
-| `month` (default) | Last 30 days |
+| `month` | Last 30 days |
 | `day` | Last 24 hours |
 | `week` | Last 7 days |
 | `year` | Last 12 months |
@@ -30735,6 +31309,8 @@ URL: https://developer.playcanvas.com/user-manual/supersplat/studio/cameras/
 
 The **Cameras** section — in the **Scene** tab of [Studio](/user-manual/supersplat/studio/)'s left panel — defines the **starting camera** for your published splat: the view a visitor lands on when they open your [scene page](/user-manual/supersplat/scene-page) (unless a [camera animation track](/user-manual/supersplat/editor/timeline) or [annotation](/user-manual/supersplat/studio/annotations) drives the start pose instead). The camera has a **position**, a **target** (the point it looks at), and a **field of view**.
 
+[Image: The Cameras panel with a list of cameras]
+
 :::note
 
 Studio currently supports a single camera. Support for multiple cameras is coming.
@@ -30743,20 +31319,44 @@ Studio currently supports a single camera. Support for multiple cameras is comin
 
 ## Setting the camera
 
-The camera is listed as **Camera 1** with two actions:
+The camera is listed as **Camera 1** with two icon buttons:
 
-- **Go to** — flies the viewport to the camera's saved pose.
-- **Edit** — enters edit mode. While editing, orbit, pan, and zoom the viewport to frame the shot; the camera's **position** and **target** are captured from the current view. Click **Edit** again to exit.
+- **Go to** (crosshair icon) — flies the viewport to the camera's saved pose.
+- **Edit** (pencil icon) — opens [camera edit mode](#edit-camera-mode) to frame a new starting view. The pencil turns yellow while edit mode is active.
 
-You set the camera's position and target by framing it in the viewport rather than typing coordinates — there are no numeric position/target inputs.
+You set the camera's **position** and **target** by framing the viewport. There are no numeric position or target inputs in the Cameras panel.
+
+### Edit camera mode {#edit-camera-mode}
+
+1. Click **Edit** (the pencil) in the Cameras panel. Studio enters camera edit mode: the viewport flies to the camera's saved pose, a thick yellow border frames the viewport, and a **Camera Edit Mode** badge appears at the top left, with **Apply** and **Cancel** buttons beside it.
+2. Orbit, pan, and zoom the viewport to frame the shot (see [Camera Controls](/user-manual/supersplat/editor/camera-controls) for navigation).
+3. Click **Apply** to save the viewport's **position**, **target** (look-at point), and **field of view** as Camera 1's stored start pose, then exit edit mode.
+4. Click **Cancel** to exit without saving; the viewport returns to the last saved pose.
+
+:::tip
+
+While framing, **double-click a point on the splat** to set it as the focal point — the point the camera orbits around. The view smoothly re-centres on that point without moving the camera's position. Double-clicking empty space has no effect.
+
+:::
+
+Click **Edit** again (or press **Escape**) to exit edit mode without saving. Unlike **Cancel**, the viewport is not restored — only the stored pose stays unchanged.
+
+<video autoPlay muted loop controls src='/video/supersplat-studio-edit-camera.mp4' style={{width: '100%', height: 'auto'}} />
 
 ## Lens (field of view)
 
-Below the camera list, the **Lens** control sets the **field of view** with a slider and a numeric input (in degrees). This is a single, global setting — it applies to the start camera and all annotation cameras. The default is **75°**.
+Below the camera list, the **Lens** control sets the **field of view** with a slider and a numeric input, in whole degrees from **10°** to **120°** (default **75°**). The value is the **full** viewing angle, not a half-angle. On a **wide** viewport the angle is measured **horizontally** (left to right); on a **tall** viewport it is measured **vertically** (top to bottom). You store one number — Studio and the published scene page apply it to whichever axis suits the screen shape.
+
+This is a single, global setting — it applies to the start camera and all annotation cameras.
 
 ## Defaults
 
-A fresh scene starts with a camera using sensible defaults — for environment-style scenes, position `[0, 2, 0]`, target `[2, 2, 0]`, **75°** field of view; for object-style scenes, position `[2, 2, -2]`, target `[0, 0, 0]`, **75°** field of view. Frame the viewport and use **Edit** to capture the pose — and adjust the **Lens** field of view — so your scene looks the way you want visitors to see it on first load.
+A fresh scene starts with a single camera at a **75°** field of view, with position and target chosen for the scene type:
+
+- **Environment-style** scenes — position `[0, 2, 0]`, target `[2, 2, 0]`.
+- **Object-style** scenes — position `[2, 2, -2]`, target `[0, 0, 0]`.
+
+Use [camera edit mode](#edit-camera-mode) to frame the viewport and click **Apply** to capture a new pose, then adjust the **Lens** field of view so the scene looks the way you want visitors to see it on first load.
 
 ## How cameras are used
 
@@ -31426,6 +32026,45 @@ Sizes and positioning for Elements that do not have a Screen behaves slightly di
 
 --------------------------------------------------------------------------------
 
+## Fonts
+
+URL: https://developer.playcanvas.com/user-manual/user-interface/fonts/
+
+A [Text Element](/user-manual/user-interface/text-elements) renders its string using a **Font asset** — a multi-channel signed distance field (MSDF) atlas made up of a `.json` file (glyph metrics) and one or more `.png` texture pages. Because the glyphs are stored as distance fields rather than fixed-size bitmaps, a single Font asset stays crisp at any size, so you only need one asset per typeface.
+
+This page covers the two ways to create a Font asset and how to load one in each runtime.
+
+## Creating a Font asset
+
+### In the Editor
+
+Drag a `.ttf`, `.ttc`, `.otf` or `.dfont` file into the Editor and it is converted to an MSDF Font asset automatically. You choose which characters to include and tune the result, then click **Process Font** to regenerate. See the [Font asset inspector](/user-manual/editor/assets/inspectors/font) for the full list of options.
+
+### Without the Editor — font-tools
+
+If you are building with the Engine, React or Web Components — without the Editor — use [**font-tools**](https://github.com/playcanvas/font-tools) to generate the same `.json` + `.png` asset the Editor produces. There are two ways to use it:
+
+- **Web app** — Open [playcanvas.github.io/font-tools](https://playcanvas.github.io/font-tools/), drag in a TTF or OTF, choose a character set and glyph size, preview the result in live PlayCanvas text, and download the files. Everything runs in your browser — your font is never uploaded.
+- **Command line** — Generate an asset without leaving your terminal:
+
+  ```bash
+  npx @playcanvas/font-tools MyFont.ttf --charset latin-ext -o assets/fonts/myfont
+  ```
+
+  This writes `myfont.json` and `myfont.png` (large character sets spill onto additional pages: `myfont1.png`, `myfont2.png`, and so on).
+
+:::note Open Source
+
+font-tools is [open-sourced under an MIT license on GitHub](https://github.com/playcanvas/font-tools). See the README for the full list of CLI options and the JavaScript API for generating fonts programmatically.
+
+:::
+
+## Using a Font asset
+
+Keep the `.json` and its `.png` page(s) together, with the same base name — the loader derives the texture URLs from the JSON URL and fetches the pages automatically.
+
+--------------------------------------------------------------------------------
+
 ## Group Elements
 
 URL: https://developer.playcanvas.com/user-manual/user-interface/group-elements/
@@ -31909,7 +32548,7 @@ With a value of 0.5 the two changes are balanced and the button stays the same s
 
 URL: https://developer.playcanvas.com/user-manual/user-interface/text-elements/
 
-The Text Element is used to display a string of text using a [font asset](/user-manual/editor/assets/inspectors/font).
+The Text Element is used to display a string of text using a [font asset](/user-manual/editor/assets/inspectors/font). See [Fonts](/user-manual/user-interface/fonts) for how to create one — in the Editor or with the standalone font-tools.
 
 ## Text
 
@@ -32422,11 +33061,14 @@ Here is a complete list of the tags that are available in PlayCanvas Web Compone
 | --- | --- |
 | [`<pc-app>`](pc-app) | Defines the root element of your application. |
 | [`<pc-asset>`](pc-asset) | Defines an asset to be loaded by your application. |
+| [`<pc-button>`](pc-button) | Defines a button component. |
 | [`<pc-camera>`](pc-camera) | Defines a camera that is used to render the scene. |
 | [`<pc-collision>`](pc-collision) | Defines a collision component used by triggers and rigid bodies. |
 | [`<pc-element>`](pc-element) | Defines a text, image or group user interface element. |
 | [`<pc-entity>`](pc-entity) | Defines an entity. |
 | [`<pc-gsplat>`](pc-gsplat) | Defines a gsplat component that renders 3D Gaussian Splats. |
+| [`<pc-layoutchild>`](pc-layoutchild) | Defines a layout child component. |
+| [`<pc-layoutgroup>`](pc-layoutgroup) | Defines a layout group component. |
 | [`<pc-light>`](pc-light) | Defines a light component. |
 | [`<pc-listener>`](pc-listener) | Defines a listener component. |
 | [`<pc-module>`](pc-module) | Defines a WebAssembly module. |
@@ -32436,6 +33078,8 @@ Here is a complete list of the tags that are available in PlayCanvas Web Compone
 | [`<pc-scene>`](pc-scene) | Defines a scene. |
 | [`<pc-script>`](pc-script) | Defines a single script assigned to a script component. |
 | [`<pc-scripts>`](pc-scripts) | Defines a script component. |
+| [`<pc-scrollbar>`](pc-scrollbar) | Defines a scrollbar component. |
+| [`<pc-scrollview>`](pc-scrollview) | Defines a scroll view component. |
 | [`<pc-sky>`](pc-sky) | Defines an image-based skybox. |
 | [`<pc-screen>`](pc-screen) | Defines a screen component that can render element components. |
 | [`<pc-sound>`](pc-sound) | Defines a single sound assigned to a sound component. |
@@ -32498,10 +33142,15 @@ The `<pc-asset>` tag is used to define an asset.
 
 | Attribute | Type | Default | Description |
 | --- | --- | --- | --- |
+| `atlas` | String | - | For `sprite` assets: the `id` of the `textureatlas` `<pc-asset>` this sprite reads from. The atlas must be declared before the sprite |
+| `data` | String | - | Inline JSON asset data. Used by texture atlases (frame definitions) and sprites |
+| `frame-keys` | String | - | For `sprite` assets: space- or comma-separated list of atlas frame keys that make up the sprite |
 | `id` | String | - | Unique identifier used by other tags to reference this asset |
 | `lazy` | Flag | - | Whether to defer loading until first referenced or explicitly requested |
+| `pixels-per-unit` | Number | `"1"` | For `sprite` assets: number of pixels per world unit |
+| `render-mode` | Enum | `"simple"` | For `sprite` assets: `"simple"` \| `"sliced"` \| `"tiled"`. Use `"sliced"` for 9-slice panels |
 | `src` | String | - | Path to the asset file |
-| `type` | Enum | *inferred* | Asset type: `"audio"` \| `"binary"` \| `"css"` \| `"container"` \| `"gsplat"` \| `"html"` \| `"json"` \| `"script"` \| `"shader"` \| `"text"` \| `"texture"` |
+| `type` | Enum | *inferred* | Asset type: `"audio"` \| `"binary"` \| `"css"` \| `"container"` \| `"font"` \| `"gsplat"` \| `"html"` \| `"json"` \| `"script"` \| `"shader"` \| `"sprite"` \| `"text"` \| `"texture"` \| `"textureatlas"` |
 
 </div>
 
@@ -32516,9 +33165,83 @@ The `<pc-asset>` tag is used to define an asset.
 </pc-app>
 ```
 
+Sprites are defined by a texture atlas (which holds the frame definitions) and one or more `sprite` assets that reference it. The atlas must be declared before any sprite that uses it:
+
+```html
+<pc-app>
+    
+    <pc-asset id="ui-sheet" type="textureatlas" src="assets/textures/ui.png"
+              data='{"frames":{"3":{"name":"panel","border":[10,10,10,10],"rect":[41,1,100,100],"pivot":[0.5,0.5]}}}'></pc-asset>
+    
+    <pc-asset id="panel" type="sprite" atlas="ui-sheet" frame-keys="3" render-mode="sliced"></pc-asset>
+</pc-app>
+```
+
 ## JavaScript Interface
 
 You can programmatically create and manipulate `<pc-asset>` elements using the [AssetElement API](https://api.playcanvas.com/web-components/classes/AssetElement.html).
+
+--------------------------------------------------------------------------------
+
+## <pc-button>
+
+URL: https://developer.playcanvas.com/user-manual/web-components/tags/pc-button/
+
+The `<pc-button>` tag is used to define a button component, which makes an element respond to pointer input with visual transitions.
+
+:::note[Usage]
+
+* It must be a direct child of a [`<pc-entity>`](../pc-entity).
+* The entity must also have a [`<pc-element>`](../pc-element) (typically `type="image"`) with the `use-input` attribute set, so the button can receive pointer input.
+
+:::
+
+## Attributes
+
+<div className="attribute-table">
+
+| Attribute | Type | Default | Description |
+| --- | --- | --- | --- |
+| `active` | Boolean | `"true"` | Whether the button responds to input |
+| `enabled` | Boolean | `"true"` | Enabled state of the component |
+| `fade-duration` | Number | `"0"` | Duration in milliseconds over which tint transitions are applied |
+| `hit-padding` | Vector4 | `"0 0 0 0"` | Expands the button's hit area as `left bottom right top` |
+| `hover-sprite-asset` | String | - | Sprite [`<pc-asset>`](../pc-asset) id shown on hover (sprite transition mode) |
+| `hover-sprite-frame` | Number | `"0"` | Frame of the hover sprite |
+| `hover-tint` | Color | `"1 1 1 1"` | Tint applied to the image entity on hover (tint transition mode) |
+| `image` | String | - | Reference (CSS selector, element id, or entity name) to the [`<pc-entity>`](../pc-entity) whose image element shows transitions. Defaults to the button's own entity |
+| `inactive-sprite-asset` | String | - | Sprite [`<pc-asset>`](../pc-asset) id shown when inactive (sprite transition mode) |
+| `inactive-sprite-frame` | Number | `"0"` | Frame of the inactive sprite |
+| `inactive-tint` | Color | `"1 1 1 1"` | Tint applied to the image entity when inactive (tint transition mode) |
+| `pressed-sprite-asset` | String | - | Sprite [`<pc-asset>`](../pc-asset) id shown when pressed (sprite transition mode) |
+| `pressed-sprite-frame` | Number | `"0"` | Frame of the pressed sprite |
+| `pressed-tint` | Color | `"1 1 1 1"` | Tint applied to the image entity when pressed (tint transition mode) |
+| `transition-mode` | Enum | `"tint"` | How the button reacts to hover/press: `"tint"` \| `"sprite"` |
+
+</div>
+
+## Example
+
+```html
+<pc-entity name="button">
+    
+    <pc-element type="image" width="190" height="45" use-input sprite-asset="blue-button"></pc-element>
+    <pc-button transition-mode="tint" hover-tint="0.8 0.8 0.8 1" pressed-tint="0.6 0.6 0.6 1"></pc-button>
+</pc-entity>
+```
+
+You can respond to clicks by listening for the `click` event on the underlying button component:
+
+```javascript
+const entity = document.querySelector('pc-entity[name="button"]').entity;
+entity.button.on('click', () => {
+    console.log('Button clicked!');
+});
+```
+
+## JavaScript Interface
+
+You can programmatically create and manipulate `<pc-button>` elements using the [ButtonComponentElement API](https://api.playcanvas.com/web-components/classes/ButtonComponentElement.html).
 
 --------------------------------------------------------------------------------
 
@@ -32631,11 +33354,17 @@ You can programmatically create and manipulate `<pc-collision>` elements using t
 
 URL: https://developer.playcanvas.com/user-manual/web-components/tags/pc-element/
 
-The `<pc-element>` tag is used to define an element component.
+The `<pc-element>` tag is used to define an element component. Element components are the building blocks of user interfaces and come in three types — `group`, `image`, and `text` — selected with the `type` attribute. Which attributes apply depends on the type.
 
 :::note[Usage]
 
 * It must be a direct child of a [`<pc-entity>`](../pc-entity).
+
+:::
+
+:::note
+
+Image elements can render a sprite (including 9-sliced sprites, via a `sliced` [`<pc-asset>`](../pc-asset)) or a texture, and can act as a `mask` to clip their descendants. Only text elements require a font `asset`.
 
 :::
 
@@ -32646,16 +33375,30 @@ The `<pc-element>` tag is used to define an element component.
 | Attribute | Type | Default | Description |
 | --- | --- | --- | --- |
 | `anchor` | Vector4 | `"0 0 0 1"` | Sets the element's anchor as `left bottom right top` relative to its parent. Each value ranges from 0 to 1. `[0,0,0,0]` anchors to the bottom-left; `[1,1,1,1]` anchors to the top-right. If left≠right or bottom≠top (a split anchor), the element resizes to cover that area, e.g. `[0,0,1,1]` fills the parent. |
-| `asset` | String | - | Font asset ID (must reference a `font` type asset) |
-| `auto-width` | Flag | - | Whether to automatically adjust width to fit content |
+| `asset` | String | - | Font asset ID (must reference a `font` type asset). Required for text elements only |
+| `auto-fit-height` | Flag | - | Reduce the font size (down to `min-font-size`) so text fits the element's height. Requires `auto-height="false"`. Text elements only |
+| `auto-fit-width` | Flag | - | Reduce the font size (down to `min-font-size`) so text fits the element's width. Requires `auto-width="false"`. Text elements only |
+| `auto-height` | Boolean | `"true"` | Whether to automatically adjust height to fit text content. Text elements only |
+| `auto-width` | Boolean | `"true"` | Whether to automatically adjust width to fit text content. Text elements only |
 | `color` | Color | `"1 1 1 1"` | Color as space-separated RGBA values, hex code, or [named color](https://github.com/playcanvas/web-components/blob/main/src/colors.ts) |
 | `enabled` | Boolean | `"true"` | Enabled state of the component |
 | `enable-markup` | Flag | - | Enables markup processing for styled text. Supports tags like `[color="#ff0000"]text[/color]` for colored text. |
-| `font-size` | Number | `"16"` | Font size in pixels |
-| `line-height` | Number | `"1.2"` | Line height multiplier |
+| `font-size` | Number | `"32"` | Font size in pixels |
+| `height` | Number | `"0"` | Height in pixels (0 for auto-sizing) |
+| `line-height` | Number | `"32"` | Line height in pixels |
+| `margin` | Vector4 | - | Insets the element from a split (stretched) anchor as `left bottom right top`. For point anchors, `width`/`height` govern size instead |
+| `mask` | Flag | - | Whether the element clips its descendants to its bounds. Image elements only |
+| `max-font-size` | Number | `"32"` | Largest font size used when auto-fitting |
+| `min-font-size` | Number | `"8"` | Smallest font size used when auto-fitting |
+| `opacity` | Number | `"1"` | Opacity, from 0 (transparent) to 1 (opaque) |
 | `pivot` | Vector2 | `"0.5 0.5"` | Pivot point as "X Y" values |
+| `pixels-per-unit` | Number | - | Pixels per unit used when rendering a sprite. Image elements only |
+| `sprite-asset` | String | - | Sprite [`<pc-asset>`](../pc-asset) ID to render. Image elements only |
+| `sprite-frame` | Number | `"0"` | Frame index of the sprite to render. Image elements only |
 | `text` | String | - | Text content to display |
+| `texture-asset` | String | - | Texture [`<pc-asset>`](../pc-asset) ID to render. Image elements only |
 | `type` | Enum | `"group"` | Element type: `"group"` \| `"image"` \| `"text"` |
+| `use-input` | Flag | - | Whether the element receives pointer input. Required for [`<pc-button>`](../pc-button) and scroll-view interaction |
 | `width` | Number | `"0"` | Width in pixels (0 for auto-sizing) |
 | `wrap-lines` | Flag | - | Whether to wrap text lines |
 
@@ -32765,6 +33508,107 @@ When rendering splat-based scenes, it is recommended to set `antialias` and `hig
 ## JavaScript Interface
 
 You can programmatically create and manipulate `<pc-gsplat>` elements using the [GSplatComponentElement API](https://api.playcanvas.com/web-components/classes/GSplatComponentElement.html).
+
+--------------------------------------------------------------------------------
+
+## <pc-layoutchild>
+
+URL: https://developer.playcanvas.com/user-manual/web-components/tags/pc-layoutchild/
+
+The `<pc-layoutchild>` tag is used to define a layout child component, which controls how an element is sized by its parent [`<pc-layoutgroup>`](../pc-layoutgroup).
+
+:::note[Usage]
+
+* It must be a direct child of a [`<pc-entity>`](../pc-entity) that also has a [`<pc-element>`](../pc-element).
+* That entity must itself be a child of an entity with a [`<pc-layoutgroup>`](../pc-layoutgroup).
+
+:::
+
+## Attributes
+
+<div className="attribute-table">
+
+| Attribute | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | Boolean | `"true"` | Enabled state of the component |
+| `exclude-from-layout` | Flag | - | Exclude this element from the layout so it takes up no space |
+| `fit-height-proportion` | Number | `"0"` | Proportion of the group's spare height this element takes when `height-fitting` stretches or shrinks |
+| `fit-width-proportion` | Number | `"0"` | Proportion of the group's spare width this element takes when `width-fitting` stretches or shrinks |
+| `max-height` | Number | - | Maximum height the element is laid out with (omit for no limit) |
+| `max-width` | Number | - | Maximum width the element is laid out with (omit for no limit) |
+| `min-height` | Number | `"0"` | Minimum height the element is laid out with |
+| `min-width` | Number | `"0"` | Minimum width the element is laid out with |
+
+</div>
+
+## Example
+
+```html
+<pc-entity>
+    <pc-element type="image" width="200" height="45"></pc-element>
+    <pc-layoutchild min-height="45" fit-width-proportion="1"></pc-layoutchild>
+</pc-entity>
+```
+
+## JavaScript Interface
+
+You can programmatically create and manipulate `<pc-layoutchild>` elements using the [LayoutChildComponentElement API](https://api.playcanvas.com/web-components/classes/LayoutChildComponentElement.html).
+
+--------------------------------------------------------------------------------
+
+## <pc-layoutgroup>
+
+URL: https://developer.playcanvas.com/user-manual/web-components/tags/pc-layoutgroup/
+
+The `<pc-layoutgroup>` tag is used to define a layout group component, which automatically arranges its child element entities in a row or column.
+
+:::note[Usage]
+
+* It must be a direct child of a [`<pc-entity>`](../pc-entity) that also has a [`<pc-element>`](../pc-element).
+* Child entities are laid out automatically. Add a [`<pc-layoutchild>`](../pc-layoutchild) to a child to control how it is sized within the group.
+
+:::
+
+## Attributes
+
+<div className="attribute-table">
+
+| Attribute | Type | Default | Description |
+| --- | --- | --- | --- |
+| `alignment` | Vector2 | `"0 1"` | Horizontal and vertical alignment of the child elements (each component 0 to 1) |
+| `enabled` | Boolean | `"true"` | Enabled state of the component |
+| `height-fitting` | Enum | `"none"` | Fitting along the vertical axis: `"none"` \| `"stretch"` \| `"shrink"` \| `"both"` |
+| `orientation` | Enum | `"horizontal"` | Orientation of the layout: `"horizontal"` \| `"vertical"` |
+| `padding` | Vector4 | `"0 0 0 0"` | Padding around the group as `left bottom right top` |
+| `reverse-x` | Flag | - | Reverse the order of children along the horizontal axis |
+| `reverse-y` | Flag | - | Reverse the order of children along the vertical axis |
+| `spacing` | Vector2 | `"0 0"` | Spacing between children as `x y` |
+| `width-fitting` | Enum | `"none"` | Fitting along the horizontal axis: `"none"` \| `"stretch"` \| `"shrink"` \| `"both"` |
+| `wrap` | Flag | - | Whether children wrap onto a new line or column when they overflow the group |
+
+</div>
+
+## Example
+
+```html
+<pc-entity name="list">
+    <pc-element type="group" width="220" height="400"></pc-element>
+    <pc-layoutgroup orientation="vertical" alignment="0 1" spacing="0 5" padding="10 10 10 10"></pc-layoutgroup>
+
+    <pc-entity name="item-1">
+        <pc-element type="image" width="200" height="45"></pc-element>
+        <pc-layoutchild></pc-layoutchild>
+    </pc-entity>
+    <pc-entity name="item-2">
+        <pc-element type="image" width="200" height="45"></pc-element>
+        <pc-layoutchild></pc-layoutchild>
+    </pc-entity>
+</pc-entity>
+```
+
+## JavaScript Interface
+
+You can programmatically create and manipulate `<pc-layoutgroup>` elements using the [LayoutGroupComponentElement API](https://api.playcanvas.com/web-components/classes/LayoutGroupComponentElement.html).
 
 --------------------------------------------------------------------------------
 
@@ -33270,6 +34114,131 @@ The `<pc-scripts>` tag is used to define a scripts component.
 ## JavaScript Interface
 
 You can programmatically create and manipulate `<pc-scripts>` elements using the [ScriptComponentElement API](https://api.playcanvas.com/web-components/classes/ScriptComponentElement.html).
+
+--------------------------------------------------------------------------------
+
+## <pc-scrollbar>
+
+URL: https://developer.playcanvas.com/user-manual/web-components/tags/pc-scrollbar/
+
+The `<pc-scrollbar>` tag is used to define a scrollbar component, which provides a draggable handle that reports a position in the range 0 to 1.
+
+:::note[Usage]
+
+* It must be a direct child of a [`<pc-entity>`](../pc-entity) that also has a [`<pc-element>`](../pc-element).
+* It is referenced by a [`<pc-scrollview>`](../pc-scrollview) via its `horizontal-scrollbar` or `vertical-scrollbar` attribute.
+* Its `handle` attribute references the [`<pc-entity>`](../pc-entity) used as the draggable handle, whose image element should have `use-input` set.
+
+:::
+
+## Attributes
+
+<div className="attribute-table">
+
+| Attribute | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | Boolean | `"true"` | Enabled state of the component |
+| `handle` | String | - | Reference (CSS selector, element id, or entity name) to the [`<pc-entity>`](../pc-entity) used as the draggable handle |
+| `handle-size` | Number | `"0.5"` | Size of the handle relative to the size of the track (0 to 1) |
+| `orientation` | Enum | `"horizontal"` | Orientation of the scrollbar: `"horizontal"` \| `"vertical"` |
+| `value` | Number | `"0"` | Current position of the scrollbar (0 to 1) |
+
+</div>
+
+## Example
+
+```html
+<pc-entity name="scrollbar">
+    <pc-element type="image" anchor="1 0 1 1" width="20"></pc-element>
+    <pc-scrollbar orientation="vertical" handle-size="0.5" handle="#handle"></pc-scrollbar>
+
+    
+    <pc-entity name="handle" id="handle">
+        <pc-element type="image" anchor="0 1 1 1" use-input></pc-element>
+        <pc-button></pc-button>
+    </pc-entity>
+</pc-entity>
+```
+
+## JavaScript Interface
+
+You can programmatically create and manipulate `<pc-scrollbar>` elements using the [ScrollbarComponentElement API](https://api.playcanvas.com/web-components/classes/ScrollbarComponentElement.html).
+
+--------------------------------------------------------------------------------
+
+## <pc-scrollview>
+
+URL: https://developer.playcanvas.com/user-manual/web-components/tags/pc-scrollview/
+
+The `<pc-scrollview>` tag is used to define a scroll view component, which lets the user scroll a larger content area within a clipped viewport.
+
+:::note[Usage]
+
+* It must be a direct child of a [`<pc-entity>`](../pc-entity) that also has a [`<pc-element>`](../pc-element).
+* It references its viewport, content, and scrollbar entities by CSS selector, element id, or entity name.
+* The viewport element should have its `mask` attribute set so the content is clipped to the scroll view's bounds.
+
+:::
+
+## Attributes
+
+<div className="attribute-table">
+
+| Attribute | Type | Default | Description |
+| --- | --- | --- | --- |
+| `bounce-amount` | Number | `"0.1"` | How far content bounces past its bounds when `scroll-mode="bounce"` (0 to 1) |
+| `content` | String | - | Reference to the content [`<pc-entity>`](../pc-entity) that is moved as the view is scrolled |
+| `enabled` | Boolean | `"true"` | Enabled state of the component |
+| `friction` | Number | `"0.05"` | How freely the content moves once thrown (0 = none, 1 = high) |
+| `horizontal` | Boolean | `"true"` | Whether horizontal scrolling is enabled |
+| `horizontal-scrollbar` | String | - | Reference to the [`<pc-entity>`](../pc-entity) holding the horizontal [`<pc-scrollbar>`](../pc-scrollbar) |
+| `horizontal-scrollbar-visibility` | Enum | `"when-required"` | When the horizontal scrollbar is shown: `"always"` \| `"when-required"` |
+| `mouse-wheel-sensitivity` | Vector2 | `"1 1"` | Mouse wheel sensitivity as `x y` (0 on an axis disables wheel scrolling for it) |
+| `scroll-mode` | Enum | `"bounce"` | Behavior when scrolled past bounds: `"clamp"` \| `"bounce"` \| `"infinite"` |
+| `use-mouse-wheel` | Boolean | `"true"` | Whether the scroll view responds to the mouse wheel |
+| `vertical` | Boolean | `"true"` | Whether vertical scrolling is enabled |
+| `vertical-scrollbar` | String | - | Reference to the [`<pc-entity>`](../pc-entity) holding the vertical [`<pc-scrollbar>`](../pc-scrollbar) |
+| `vertical-scrollbar-visibility` | Enum | `"when-required"` | When the vertical scrollbar is shown: `"always"` \| `"when-required"` |
+
+</div>
+
+## Example
+
+```html
+<pc-entity name="scroll-view">
+    <pc-element type="group" width="230" height="400"></pc-element>
+    <pc-scrollview
+        horizontal="false"
+        vertical="true"
+        viewport="#viewport"
+        content="#content"
+        vertical-scrollbar="#v-scrollbar"></pc-scrollview>
+
+    
+    <pc-entity name="viewport" id="viewport">
+        <pc-element type="image" anchor="0 0 1 1" mask></pc-element>
+
+        
+        <pc-entity name="content" id="content">
+            <pc-element type="group" anchor="0 1 0 1" pivot="0 1" width="220" height="700" use-input></pc-element>
+        </pc-entity>
+    </pc-entity>
+
+    
+    <pc-entity name="v-scrollbar" id="v-scrollbar">
+        <pc-element type="image" anchor="1 0 1 1" width="20"></pc-element>
+        <pc-scrollbar orientation="vertical" handle="#v-handle"></pc-scrollbar>
+        <pc-entity name="handle" id="v-handle">
+            <pc-element type="image" anchor="0 1 1 1" use-input></pc-element>
+            <pc-button></pc-button>
+        </pc-entity>
+    </pc-entity>
+</pc-entity>
+```
+
+## JavaScript Interface
+
+You can programmatically create and manipulate `<pc-scrollview>` elements using the [ScrollViewComponentElement API](https://api.playcanvas.com/web-components/classes/ScrollViewComponentElement.html).
 
 --------------------------------------------------------------------------------
 
